@@ -1,0 +1,18 @@
+{
+  "total": 2,
+  "items": [
+    {
+      "type": "app",
+      "name": "赛博朋克 2077",
+      "id": 1091500,
+      "price": {"currency": "CNY", "initial": 29800, "final": 14900},
+      "tiny_image": "https://cdn.akamai.steamstatic.com/steam/apps/1091500/capsule_sm_120.jpg"
+    },
+    {
+      "type": "app",
+      "name": "赛博朋克 2077：往日之影",
+      "id": 2138330,
+      "tiny_image": "https://cdn.akamai.steamstatic.com/steam/apps/2138330/capsule_sm_120.jpg"
+    }
+  ]
+}

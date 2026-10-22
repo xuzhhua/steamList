@@ -1,0 +1,20 @@
+{
+  "1245620": {
+    "success": true,
+    "data": {
+      "type": "game",
+      "name": "ELDEN RING",
+      "steam_appid": 1245620,
+      "header_image": "https://cdn.akamai.steamstatic.com/steam/apps/1245620/header.jpg",
+      "short_description": "THE CRITICALLY ACCLAIMED FANTASY ACTION RPG",
+      "developers": ["FromSoftware, Inc."],
+      "publishers": ["FromSoftware, Inc.", "Bandai Namco Entertainment"],
+      "genres": [
+        {"id": "1", "description": "Action"},
+        {"id": "3", "description": "RPG"}
+      ],
+      "release_date": {"coming_soon": false, "date": "24 Feb, 2022"},
+      "is_free": false
+    }
+  }
+}

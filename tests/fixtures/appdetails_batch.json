@@ -1,0 +1,50 @@
+{
+  "1245620": {
+    "success": true,
+    "data": {
+      "type": "game",
+      "name": "ELDEN RING",
+      "is_free": false,
+      "price_overview": {
+        "currency": "CNY",
+        "initial": 29800,
+        "final": 29800,
+        "discount_percent": 0,
+        "initial_formatted": "¥ 298.00",
+        "final_formatted": "¥ 298.00"
+      }
+    }
+  },
+  "1086940": {
+    "success": true,
+    "data": {
+      "type": "game",
+      "name": "Baldur's Gate 3",
+      "is_free": false,
+      "price_overview": {
+        "currency": "CNY",
+        "initial": 29800,
+        "final": 26820,
+        "discount_percent": 10
+      }
+    }
+  },
+  "730": {
+    "success": true,
+    "data": {
+      "type": "game",
+      "name": "Counter-Strike 2",
+      "is_free": true,
+      "price_overview": null
+    }
+  },
+  "999999": {
+    "success": true,
+    "data": {
+      "type": "game",
+      "name": "Delisted Game",
+      "is_free": false,
+      "price_overview": null
+    }
+  }
+}

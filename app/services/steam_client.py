@@ -246,7 +246,7 @@ class SteamClient:
                 SearchItem(
                     appid=appid,
                     name=str(row.get("name") or ""),
-                    header_image=str(row.get("tiny_image") or HEADER_IMAGE_URL.format(appid=appid)),
+                    header_image=HEADER_IMAGE_URL.format(appid=appid),
                     price_cents=int(price["final"]) if price.get("final") is not None else None,
                     currency=price.get("currency"),
                 )
