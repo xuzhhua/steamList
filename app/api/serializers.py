@@ -6,8 +6,8 @@ import json
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ..models import Game, NotificationChannel, WatchItem, WatchState
-from ..schemas import ChannelOut, GameOut, SettingsOut, StateOut, WatchItemOut
+from ..models import Game, JobRun, NotificationChannel, WatchItem, WatchState
+from ..schemas import ChannelOut, GameOut, JobRunOut, SettingsOut, StateOut, WatchItemOut
 from ..services.settings_store import get_settings as load_settings
 from ..timeutil import to_iso
 
@@ -82,6 +82,21 @@ def channels_out(session: Session) -> list[ChannelOut]:
             config = {}
         out.append(ChannelOut(id=row.id, kind=row.kind, name=row.name, config=config, enabled=bool(row.enabled)))
     return out
+
+
+def job_run_out(run: JobRun | None) -> JobRunOut | None:
+    if run is None:
+        return None
+    return JobRunOut(
+        id=run.id,
+        job_type=run.job_type,
+        status=run.status,
+        started_at=to_iso(run.started_at),
+        finished_at=to_iso(run.finished_at),
+        checked_count=run.checked_count or 0,
+        changed_count=run.changed_count or 0,
+        error=run.error or "",
+    )
 
 
 def settings_out(session: Session) -> SettingsOut:

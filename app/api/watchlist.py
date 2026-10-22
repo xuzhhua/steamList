@@ -15,10 +15,14 @@ from ..schemas import (
     WatchItemOut,
     WatchlistResponse,
     WatchlistSummary,
+    WishlistImportRequest,
+    WishlistImportResponse,
 )
 from ..services.pricing import ensure_game, ensure_placeholder_game, ingest_prices
-from ..services.settings_store import get_settings as load_settings
+from ..services.settings_store import get_settings as load_settings, update_settings
 from ..services.steam_client import SteamError, SteamClient
+from ..services.wishlist import import_wishlist
+from ..timeutil import to_iso, utcnow
 from .common import run_client_work
 from .serializers import watch_item_out
 
@@ -118,6 +122,51 @@ def delete_watch(appid: int, db: Session = Depends(get_db)) -> Response:
     db.delete(item)
     db.commit()
     return Response(status_code=204)
+
+
+@router.post("/import", response_model=WishlistImportResponse)
+def import_steam_wishlist(
+    payload: WishlistImportRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+) -> WishlistImportResponse:
+    settings = load_settings(db)
+    steamid = (payload.steamid or str(settings.get("steamid") or "")).strip()
+    if not steamid:
+        raise HTTPException(status_code=400, detail="steamid is required (pass it or save it in settings)")
+
+    cc = str(settings["cc"])
+
+    async def work(client: SteamClient):
+        ids = await client.fetch_wishlist(steamid)
+        ids = [int(appid) for appid in ids][: payload.limit]
+        if not ids:
+            return ids, {}, {}
+        prices = await client.fetch_prices(ids)
+        metas = await client.fetch_metas(ids)
+        return ids, prices, metas
+
+    try:
+        appids, prices, metas = run_client_work(request.app, cc, str(settings["lang"]), work)
+    except SteamError as exc:
+        logger.warning("wishlist import failed: %s", exc)
+        raise HTTPException(status_code=502, detail=f"steam wishlist fetch failed: {exc}") from exc
+
+    errors: list[str] = []
+    if not appids:
+        errors.append("wishlist is empty or the Steam profile is not public")
+    report = import_wishlist(db, appids, metas, prices, cc)
+    update_settings(db, {"wishlist_last_import_at": to_iso(utcnow())})
+    db.commit()
+
+    return WishlistImportResponse(
+        imported=report.imported,
+        skipped=report.skipped,
+        failed=report.failed,
+        total=len(appids),
+        appids=report.appids,
+        errors=errors,
+    )
 
 
 def client_factory(app, cc: str, lang: str) -> SteamClient:  # pragma: no cover - typing helper

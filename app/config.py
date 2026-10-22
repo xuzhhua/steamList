@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     proxy_url: str | None = None
     app_version: str = "0.1.0"
     log_level: str = "INFO"
+    enable_scheduler: bool = True
 
     @property
     def db_path(self) -> Path:

@@ -12,6 +12,7 @@ sys.path.insert(0, str(ROOT))
 @pytest.fixture()
 def settings(tmp_path, monkeypatch):
     monkeypatch.setenv("STEAMLIST_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("STEAMLIST_ENABLE_SCHEDULER", "false")
     from app.config import Settings
 
     s = Settings()

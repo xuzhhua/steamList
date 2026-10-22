@@ -248,3 +248,15 @@ class NotificationLogOut(BaseModel):
 
 class NotificationLogResponse(BaseModel):
     items: list[NotificationLogOut] = Field(default_factory=list)
+
+
+class BackupOut(BaseModel):
+    name: str
+    size_bytes: int
+    created_at: str
+    download_url: str
+
+
+class BackupListResponse(BaseModel):
+    backups: list[BackupOut] = Field(default_factory=list)
+    latest: BackupOut | None = None
