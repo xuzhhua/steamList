@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+*.egg-info/
+
+# Data & runtime
+data/
+*.db
+*.db-wal
+*.db-shm
+.env
+
+# Frontend
+web/node_modules/
+web/dist/
+app/static/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Deploy artifacts
+*.tar
+*.zip
+deploy-tmp/
