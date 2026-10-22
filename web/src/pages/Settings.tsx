@@ -423,10 +423,10 @@ export default function SettingsPage() {
               ))}
             </Select>
           </Field>
-          <Field label="SteamID / 自定义链接名" hint="用于导入心愿单">
+          <Field label="SteamID / 个人资料链接 / 自定义链接名" hint="导入心愿单用，需要公开的个人资料">
             <Input
               value={form.steamid}
-              placeholder="例如 76561198000000000"
+              placeholder="7656119… 或 steamcommunity.com/id/xxx"
               onChange={(event) => setForm({ ...form, steamid: event.target.value })}
             />
           </Field>

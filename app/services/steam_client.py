@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import random
+import re
 import time
 from dataclasses import dataclass
 from typing import Any, Mapping, Sequence
@@ -25,7 +26,26 @@ logger = logging.getLogger("steamlist.steam")
 APP_DETAILS_URL = "https://store.steampowered.com/api/appdetails"
 STORE_SEARCH_URL = "https://store.steampowered.com/api/storesearch/"
 WISHLIST_URL = "https://api.steampowered.com/IWishlistService/GetWishlist/v1/"
+PROFILE_XML_URL = "https://steamcommunity.com/profiles/{steamid}/?xml=1"
+VANITY_XML_URL = "https://steamcommunity.com/id/{vanity}/?xml=1"
+WISHLIST_DATA_URL = "https://store.steampowered.com/wishlist/profiles/{steamid}/wishlistdata/"
 HEADER_IMAGE_URL = "https://cdn.akamai.steamstatic.com/steam/apps/{appid}/header.jpg"
+
+_STEAMID64_RE = re.compile(r"^\d{17}$")
+_PROFILE_URL_RE = re.compile(r"/profiles/(\d{17})")
+_VANITY_URL_RE = re.compile(r"/id/([^/?#]+)")
+_VANITY_RE = re.compile(r"^[A-Za-z0-9_.-]{2,64}$")
+
+
+def xml_value(xml_text: str, tag: str) -> str:
+    """Read a simple ``<tag>`` value (with or without CDATA) from Steam XML."""
+    match = re.search(
+        rf"<{tag}>\s*(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?\s*</{tag}>",
+        xml_text or "",
+        re.S,
+    )
+    return match.group(1).strip() if match else ""
+
 
 BATCH_SIZE = 100
 DEFAULT_CURRENCY = {
@@ -153,7 +173,7 @@ class SteamClient:
         for attempt in range(4):
             await self._throttle()
             try:
-                response = await self._client.get(url, params=dict(params))
+                response = await self._client.get(url, params=dict(params) if params else None)
             except httpx.HTTPError as exc:
                 last_error = exc
                 await asyncio.sleep(2 ** attempt)
@@ -289,3 +309,93 @@ class SteamClient:
         payload = await self._request(WISHLIST_URL, {"steamid": steamid})
         response = payload.get("response") or {}
         return [int(item["appid"]) for item in (response.get("items") or []) if item.get("appid")]
+
+    async def _get_text(
+        self,
+        url: str,
+        params: Mapping[str, Any] | None = None,
+        follow_redirects: bool = True,
+    ) -> httpx.Response:
+        """GET a community/store HTML/XML page (these are not JSON endpoints)."""
+        last_error: Exception | None = None
+        for attempt in range(3):
+            await self._throttle()
+            try:
+                response = await self._client.get(
+                    url,
+                    params=dict(params) if params else None,
+                    follow_redirects=follow_redirects,
+                )
+            except httpx.HTTPError as exc:
+                last_error = exc
+                await asyncio.sleep(2 ** attempt)
+                continue
+            if response.status_code == 429 or response.status_code >= 500:
+                delay = float(2 ** attempt)
+                retry_after = response.headers.get("Retry-After", "")
+                if retry_after.isdigit():
+                    delay = float(retry_after)
+                logger.warning("Steam HTTP %s for %s; retrying in %.0fs", response.status_code, url, delay)
+                await asyncio.sleep(min(delay, 30.0))
+                last_error = SteamError(f"HTTP {response.status_code} from {url}")
+                continue
+            return response
+        raise SteamError(f"Steam request failed after retries: {last_error}")
+
+    async def resolve_steamid(self, value: str) -> str:
+        """Accept a SteamID64, a profile URL or a custom vanity name.
+
+        Steam's wishlist API only accepts the 17-digit SteamID64; vanity names are
+        resolved through the public profile XML endpoint (no API key needed).
+        """
+        raw = (value or "").strip()
+        if not raw:
+            raise SteamError("SteamID 不能为空")
+        match = _PROFILE_URL_RE.search(raw)
+        if match:
+            return match.group(1)
+        if _STEAMID64_RE.match(raw):
+            return raw
+        if raw.isdigit():
+            raise SteamError(
+                "SteamID 必须是 17 位数字（以 7656 开头），或填写个人资料链接 / 自定义链接名"
+            )
+        vanity_match = _VANITY_URL_RE.search(raw)
+        vanity = vanity_match.group(1) if vanity_match else raw
+        if not _VANITY_RE.match(vanity):
+            raise SteamError("无法识别的 SteamID / 个人资料链接，请填写 17 位数字、资料链接或自定义链接名")
+        response = await self._get_text(VANITY_XML_URL.format(vanity=vanity))
+        steamid = xml_value(response.text, "steamID64")
+        if response.status_code != 200 or not _STEAMID64_RE.match(steamid):
+            raise SteamError(f"未找到自定义链接名「{vanity}」对应的 Steam 个人资料，请检查链接名是否正确")
+        return steamid
+
+    async def fetch_profile(self, steamid: str) -> dict[str, str] | None:
+        """Public profile summary: persona name and privacy state."""
+        response = await self._get_text(PROFILE_XML_URL.format(steamid=steamid))
+        if response.status_code != 200:
+            return None
+        text = response.text
+        found = xml_value(text, "steamID64")
+        if not found and not xml_value(text, "privacyState"):
+            return None
+        return {
+            "steamid": found or steamid,
+            "persona": xml_value(text, "steamID") or found or steamid,
+            "privacy": xml_value(text, "privacyState"),
+            "visibility": xml_value(text, "visibilityState"),
+        }
+
+    async def wishlist_visibility(self, steamid: str) -> str:
+        """Whether the store can show this wishlist: ``visible`` / ``hidden`` / ``unknown``."""
+        response = await self._get_text(
+            WISHLIST_DATA_URL.format(steamid=steamid),
+            params={"p": "0"},
+            follow_redirects=False,
+        )
+        if response.status_code == 200:
+            return "visible"
+        if 300 <= response.status_code < 400 or response.status_code in (401, 403):
+            return "hidden"
+        return "unknown"
+

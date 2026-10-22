@@ -164,4 +164,6 @@ deploy.ps1           远程部署脚本
 
 **容器内访问 Steam 失败？** 检查 `STEAMLIST_PROXY_URL` 是否配置为 `host.docker.internal` 形式，并确认宿主机代理允许局域网/容器访问。
 
+**导入心愿单提示「心愿单不可见」？** Steam 心愿单接口只能读取公开数据。请打开 Steam → 个人资料 → 编辑个人资料 → 隐私设置，把「我的个人资料」设为「公开」（若列表里有「心愿单」选项也设为「公开」），保存后再导入。输入支持三种形式：17 位 SteamID64、`steamcommunity.com/profiles/...` 或 `steamcommunity.com/id/...` 链接、以及自定义链接名（如 `gaben`）。若提示「资料已公开但心愿单里没有游戏」，说明心愿单确实为空或已隐藏。
+
 **运行 `.\deploy.ps1` 报「未对文件进行数字签名 / 无法加载文件」？** 这是 PowerShell 执行策略拦截了未签名脚本。改用 `.\deploy.cmd -RemoteUser ...`，或显式执行 `powershell -NoProfile -ExecutionPolicy Bypass -File .\deploy.ps1 ...`；也可 `Unblock-File .\deploy.ps1` 后重试（仅解除文件锁定，对 AllSigned 策略无效）。

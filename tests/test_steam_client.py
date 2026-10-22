@@ -192,3 +192,179 @@ def test_wishlist_requires_numeric_steamid():
             await client.aclose()
 
     asyncio.run(run())
+
+
+PROFILE_XML = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<profile>
+\t<steamID64>76561197968052866</steamID64>
+\t<steamID><![CDATA[Gaben]]></steamID>
+\t<privacyState>public</privacyState>
+\t<visibilityState>3</visibilityState>
+</profile>"""
+
+PRIVATE_PROFILE_XML = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<profile>
+\t<privacyState>private</privacyState>
+\t<visibilityState>1</visibilityState>
+\t<stateMessage><![CDATA[This profile is private.]]></stateMessage>
+</profile>"""
+
+
+def test_resolve_steamid_accepts_id_and_profile_url_without_requests():
+    def handler(request: httpx.Request) -> httpx.Response:  # pragma: no cover
+        raise AssertionError(f"unexpected request: {request.url}")
+
+    async def run():
+        client = make_client(handler)
+        try:
+            return [
+                await client.resolve_steamid("76561197960287930"),
+                await client.resolve_steamid("https://steamcommunity.com/profiles/76561197960287930/"),
+                await client.resolve_steamid("  steamcommunity.com/profiles/76561197960287930?l=schinese  "),
+            ]
+        finally:
+            await client.aclose()
+
+    assert asyncio.run(run()) == ["76561197960287930"] * 3
+
+
+def test_resolve_steamid_vanity_uses_profile_xml():
+    seen: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(str(request.url))
+        return httpx.Response(200, text=PROFILE_XML)
+
+    async def run():
+        client = make_client(handler)
+        try:
+            return (
+                await client.resolve_steamid("gaben"),
+                await client.resolve_steamid("https://steamcommunity.com/id/gaben/"),
+            )
+        finally:
+            await client.aclose()
+
+    assert asyncio.run(run()) == ("76561197968052866", "76561197968052866")
+    assert all("steamcommunity.com/id/gaben/" in url for url in seen)
+
+
+def test_resolve_steamid_unknown_vanity_raises():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, text=PRIVATE_PROFILE_XML)
+
+    async def run():
+        client = make_client(handler)
+        try:
+            with pytest.raises(SteamError):
+                await client.resolve_steamid("no-such-profile")
+        finally:
+            await client.aclose()
+
+    asyncio.run(run())
+
+
+def test_resolve_steamid_rejects_short_numeric_id():
+    def handler(request: httpx.Request) -> httpx.Response:  # pragma: no cover
+        raise AssertionError("should not be called")
+
+    async def run():
+        client = make_client(handler)
+        try:
+            with pytest.raises(SteamError):
+                await client.resolve_steamid("12345")
+        finally:
+            await client.aclose()
+
+    asyncio.run(run())
+
+
+def test_fetch_profile_parses_privacy_state():
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert "/profiles/76561197968052866/" in str(request.url)
+        return httpx.Response(200, text=PROFILE_XML)
+
+    async def run():
+        client = make_client(handler)
+        try:
+            return await client.fetch_profile("76561197968052866")
+        finally:
+            await client.aclose()
+
+    profile = asyncio.run(run())
+    assert profile is not None
+    assert profile["persona"] == "Gaben"
+    assert profile["privacy"] == "public"
+
+
+def test_fetch_profile_missing_returns_none():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(404, text="not found")
+
+    async def run():
+        client = make_client(handler)
+        try:
+            return await client.fetch_profile("76561190000000000")
+        finally:
+            await client.aclose()
+
+    assert asyncio.run(run()) is None
+
+
+def test_fetch_profile_private_profile_reports_privacy():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, text=PRIVATE_PROFILE_XML)
+
+    async def run():
+        client = make_client(handler)
+        try:
+            return await client.fetch_profile("76561197960287930")
+        finally:
+            await client.aclose()
+
+    profile = asyncio.run(run())
+    assert profile is not None
+    assert profile["privacy"] == "private"
+    assert profile["steamid"] == "76561197960287930"
+
+
+def test_wishlist_visibility_detects_redirect_and_public():
+    def handler(request: httpx.Request) -> httpx.Response:
+        if "76561197960287930" in str(request.url):
+            return httpx.Response(302, headers={"location": "https://steamcommunity.com/login"})
+        return httpx.Response(200, json={"1": {"name": "ELDEN RING"}})
+
+    async def run():
+        client = make_client(handler)
+        try:
+            return (
+                await client.wishlist_visibility("76561197960287930"),
+                await client.wishlist_visibility("76561197968052866"),
+            )
+        finally:
+            await client.aclose()
+
+    assert asyncio.run(run()) == ("hidden", "visible")
+
+
+def test_get_text_keeps_query_string_when_params_omitted():
+    """httpx drops the existing query when ``params={}`` is passed; this guards the XML link."""
+    seen: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(str(request.url))
+        return httpx.Response(200, text=PROFILE_XML)
+
+    async def run():
+        client = make_client(handler)
+        try:
+            response = await client._get_text(
+                "https://steamcommunity.com/profiles/76561197968052866/?xml=1"
+            )
+            return response.text
+        finally:
+            await client.aclose()
+
+    assert asyncio.run(run()) == PROFILE_XML
+    assert seen == ["https://steamcommunity.com/profiles/76561197968052866/?xml=1"]
+

@@ -138,25 +138,29 @@ def import_steam_wishlist(
     cc = str(settings["cc"])
 
     async def work(client: SteamClient):
-        ids = await client.fetch_wishlist(steamid)
-        ids = [int(appid) for appid in ids][: payload.limit]
+        resolved = await client.resolve_steamid(steamid)
+        ids = [int(appid) for appid in (await client.fetch_wishlist(resolved))][: payload.limit]
         if not ids:
-            return ids, {}, {}
+            profile = await client.fetch_profile(resolved)
+            visibility = await client.wishlist_visibility(resolved)
+            return resolved, ids, {}, {}, profile, visibility
         prices = await client.fetch_prices(ids)
         metas = await client.fetch_metas(ids)
-        return ids, prices, metas
+        return resolved, ids, prices, metas, None, ""
 
     try:
-        appids, prices, metas = run_client_work(request.app, cc, str(settings["lang"]), work)
+        resolved_steamid, appids, prices, metas, profile, visibility = run_client_work(
+            request.app, cc, str(settings["lang"]), work
+        )
     except SteamError as exc:
         logger.warning("wishlist import failed: %s", exc)
         raise HTTPException(status_code=502, detail=f"steam wishlist fetch failed: {exc}") from exc
 
     errors: list[str] = []
     if not appids:
-        errors.append("wishlist is empty or the Steam profile is not public")
+        errors.append(_empty_wishlist_reason(resolved_steamid, profile, visibility))
     report = import_wishlist(db, appids, metas, prices, cc)
-    update_settings(db, {"wishlist_last_import_at": to_iso(utcnow())})
+    update_settings(db, {"wishlist_last_import_at": to_iso(utcnow()), "steamid": resolved_steamid})
     db.commit()
 
     return WishlistImportResponse(
@@ -167,6 +171,26 @@ def import_steam_wishlist(
         appids=report.appids,
         errors=errors,
     )
+
+
+def _empty_wishlist_reason(
+    steamid: str,
+    profile: dict[str, str] | None,
+    visibility: str,
+) -> str:
+    """Explain why GetWishlist returned nothing, with an actionable next step."""
+    if not profile:
+        return f"找不到 SteamID {steamid} 对应的个人资料，请检查 ID 或链接是否正确"
+    persona = profile.get("persona") or steamid
+    privacy = profile.get("privacy") or ""
+    if visibility == "hidden" or privacy != "public":
+        reason = f"当前资料隐私：{privacy}" if privacy else "隐私设置限制了公开访问"
+        return (
+            f"「{persona}」的 Steam 心愿单不可见（{reason}）。"
+            "请打开 Steam → 个人资料 → 编辑个人资料 → 隐私设置，"
+            "把「我的个人资料」设为「公开」（如有「心愿单」选项也设为公开），保存后重试导入。"
+        )
+    return f"「{persona}」的个人资料已公开，但心愿单里没有游戏（或心愿单被隐藏），请先在 Steam 添加游戏到心愿单"
 
 
 def client_factory(app, cc: str, lang: str) -> SteamClient:  # pragma: no cover - typing helper

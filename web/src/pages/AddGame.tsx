@@ -244,12 +244,15 @@ export default function AddGame() {
         </Card>
 
         <Card className="p-4 sm:p-5">
-          <SectionHeader title="从 Steam 心愿单导入" description="需要公开的 Steam 个人资料与心愿单" />
+          <SectionHeader
+            title="从 Steam 心愿单导入"
+            description="支持 SteamID64、个人资料链接或自定义链接名；需把 Steam 隐私设置中的「我的个人资料」设为公开"
+          />
           <div className="flex items-end gap-2">
             <div className="flex-1">
-              <Field label="SteamID / 自定义链接名" hint="可选">
+              <Field label="SteamID / 个人资料链接 / 自定义链接名" hint="可选">
                 <Input
-                  placeholder="例如 76561198000000000"
+                  placeholder="7656119… 或 steamcommunity.com/id/xxx"
                   value={steamid}
                   onChange={(event) => setSteamid(event.target.value)}
                 />
@@ -289,6 +292,7 @@ export default function AddGame() {
           ) : (
             <p className="mt-2 text-[11px] leading-5 text-dim">
               留空则使用「设置」中保存的 SteamID。导入会跳过已关注的游戏。
+              心愿单读取的是公开数据：若提示不可见，请到 Steam → 个人资料 → 编辑个人资料 → 隐私设置，把「我的个人资料」设为「公开」。
             </p>
           )}
         </Card>

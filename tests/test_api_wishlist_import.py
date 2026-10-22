@@ -37,12 +37,31 @@ class FakeWishlistSteam:
         self.metas = {APPD: META}
         self.error: Exception | None = None
         self.seen_steamid: str | None = None
+        self.seen_input: str | None = None
+        self.resolved = STEAMID
+        self.profile = {
+            "steamid": STEAMID,
+            "persona": "TestUser",
+            "privacy": "public",
+            "visibility": "3",
+        }
+        self.visibility = "visible"
+
+    async def resolve_steamid(self, value: str) -> str:
+        self.seen_input = value
+        return self.resolved
 
     async def fetch_wishlist(self, steamid: str):
         self.seen_steamid = steamid
         if self.error is not None:
             raise self.error
         return list(self.wishlist)
+
+    async def fetch_profile(self, steamid: str):
+        return self.profile
+
+    async def wishlist_visibility(self, steamid: str) -> str:
+        return self.visibility
 
     async def fetch_prices(self, appids):
         return {appid: self.prices.get(appid) for appid in appids}
@@ -125,3 +144,44 @@ def test_import_respects_limit(api, fake):
     body = api.post("/api/watchlist/import", json={"steamid": STEAMID, "limit": 1}).json()
     assert body["total"] == 1
     assert body["appids"] == [APPD]
+
+
+def test_import_resolves_vanity_and_saves_canonical_steamid(api, fake):
+    body = api.post("/api/watchlist/import", json={"steamid": "gaben"}).json()
+    assert fake.seen_input == "gaben"
+    assert fake.seen_steamid == STEAMID
+    assert body["imported"] == 2
+    assert api.get("/api/settings").json()["steamid"] == STEAMID
+
+
+def test_import_explains_private_profile(api, fake):
+    fake.wishlist = []
+    fake.visibility = "hidden"
+    fake.profile = {
+        "steamid": STEAMID,
+        "persona": "TestUser",
+        "privacy": "private",
+        "visibility": "1",
+    }
+    body = api.post("/api/watchlist/import", json={"steamid": STEAMID}).json()
+    assert body["imported"] == 0
+    assert body["errors"]
+    assert "隐私" in body["errors"][0]
+    assert "公开" in body["errors"][0]
+
+
+def test_import_explains_empty_public_wishlist(api, fake):
+    fake.wishlist = []
+    fake.visibility = "visible"
+    body = api.post("/api/watchlist/import", json={"steamid": STEAMID}).json()
+    assert body["errors"]
+    assert "没有游戏" in body["errors"][0]
+
+
+def test_import_unknown_profile(api, fake):
+    fake.wishlist = []
+    fake.visibility = "unknown"
+    fake.profile = None
+    body = api.post("/api/watchlist/import", json={"steamid": STEAMID}).json()
+    assert body["errors"]
+    assert "找不到" in body["errors"][0]
