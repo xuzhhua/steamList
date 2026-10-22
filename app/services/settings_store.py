@@ -20,7 +20,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "wishlist_last_import_at": None,
     "next_poll_at": None,
     "meta_refresh_at": None,
-    "wishlist_import_enabled": True,
+    "wishlist_enabled": True,
 }
 
 

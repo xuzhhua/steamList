@@ -1,0 +1,124 @@
+"""Watchlist CRUD endpoints."""
+from __future__ import annotations
+
+import logging
+
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
+
+from ..deps import get_db
+from ..models import WatchItem, WatchState
+from ..schemas import (
+    AddWatchRequest,
+    PatchWatchRequest,
+    WatchItemOut,
+    WatchlistResponse,
+    WatchlistSummary,
+)
+from ..services.pricing import ensure_game, ensure_placeholder_game, ingest_prices
+from ..services.settings_store import get_settings as load_settings
+from ..services.steam_client import SteamError, SteamClient
+from .common import run_client_work
+from .serializers import watch_item_out
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter(prefix="/watchlist", tags=["watchlist"])
+
+
+def _get_item(db: Session, appid: int) -> WatchItem:
+    item = db.execute(select(WatchItem).where(WatchItem.appid == appid)).scalar_one_or_none()
+    if item is None:
+        raise HTTPException(status_code=404, detail=f"appid {appid} is not on the watchlist")
+    return item
+
+
+@router.get("", response_model=WatchlistResponse)
+def list_watchlist(db: Session = Depends(get_db)) -> WatchlistResponse:
+    rows = db.execute(select(WatchItem).order_by(WatchItem.sort_order, WatchItem.id)).scalars().all()
+    items = [watch_item_out(db, row) for row in rows]
+    summary = WatchlistSummary(
+        count=len(items),
+        discounting_count=sum(1 for i in items if i.available and i.current_discount_percent > 0),
+        atl_count=sum(1 for i in items if i.atl_cents is not None),
+        below_target_count=sum(
+            1
+            for i in items
+            if i.available
+            and i.target_price_cents is not None
+            and i.current_final_cents > 0
+            and i.current_final_cents <= i.target_price_cents
+        ),
+        last_checked_at=max((i.last_checked_at for i in items if i.last_checked_at), default=None),
+    )
+    return WatchlistResponse(items=items, summary=summary)
+
+
+@router.post("", response_model=WatchItemOut, status_code=201)
+def add_watch(
+    payload: AddWatchRequest,
+    request: Request,
+    response: Response,
+    db: Session = Depends(get_db),
+) -> WatchItemOut:
+    existing = db.execute(select(WatchItem).where(WatchItem.appid == payload.appid)).scalar_one_or_none()
+    if existing is not None:
+        response.status_code = 200
+        return watch_item_out(db, existing)
+
+    settings = load_settings(db)
+    cc = (payload.cc or settings["cc"]).lower()
+    max_sort = db.execute(select(func.max(WatchItem.sort_order))).scalar() or 0
+
+    ensure_placeholder_game(db, payload.appid)
+    item = WatchItem(
+        appid=payload.appid,
+        cc=cc,
+        target_price_cents=payload.target_price_cents,
+        discount_alert_threshold=payload.discount_alert_threshold,
+        note=payload.note,
+        notify_enabled=payload.notify_enabled,
+        sort_order=max_sort + 10,
+    )
+    db.add(item)
+    db.flush()
+
+    try:
+        meta, price = run_client_work(
+            request.app, cc, settings["lang"], lambda client: client.fetch_app(payload.appid)
+        )
+    except SteamError as exc:
+        logger.warning("steam fetch failed for appid %s: %s", payload.appid, exc)
+        meta, price = None, None
+
+    if meta is not None:
+        ensure_game(db, meta)
+    if price is not None:
+        ingest_prices(db, {payload.appid: price}, cc)
+    db.commit()
+    db.refresh(item)
+    return watch_item_out(db, item)
+
+
+@router.patch("/{appid}", response_model=WatchItemOut)
+def patch_watch(appid: int, payload: PatchWatchRequest, db: Session = Depends(get_db)) -> WatchItemOut:
+    item = _get_item(db, appid)
+    for key, value in payload.model_dump(exclude_unset=True).items():
+        setattr(item, key, value)
+    db.commit()
+    db.refresh(item)
+    return watch_item_out(db, item)
+
+
+@router.delete("/{appid}", status_code=204)
+def delete_watch(appid: int, db: Session = Depends(get_db)) -> Response:
+    item = _get_item(db, appid)
+    db.query(WatchState).filter(WatchState.appid == appid).delete()
+    db.delete(item)
+    db.commit()
+    return Response(status_code=204)
+
+
+def client_factory(app, cc: str, lang: str) -> SteamClient:  # pragma: no cover - typing helper
+    return app.state.steam_factory(cc, lang)

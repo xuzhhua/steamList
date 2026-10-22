@@ -9,9 +9,10 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from .api import health
+from .api import games, health, settings as settings_api, watchlist
 from .config import Settings, get_settings
 from .db import Database
+from .services.steam_client import SteamClient
 
 logger = logging.getLogger("steamlist")
 
@@ -49,7 +50,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.settings = settings
     app.state.db = database
 
+    def steam_factory(cc: str, lang: str) -> SteamClient:
+        return SteamClient(cc=cc, lang=lang, proxy=settings.proxy_url or None)
+
+    app.state.steam_factory = steam_factory
+
     app.include_router(health.router, prefix="/api")
+    app.include_router(watchlist.router, prefix="/api")
+    app.include_router(games.router, prefix="/api")
+    app.include_router(settings_api.router, prefix="/api")
 
     _mount_frontend(app)
     return app

@@ -208,12 +208,7 @@ class SteamClient:
                 await asyncio.sleep(random.uniform(1.0, 3.0))
         return results
 
-    async def fetch_meta(self, appid: int) -> GameMeta | None:
-        payload = await self._request(
-            APP_DETAILS_URL,
-            {"appids": str(appid), "cc": self.cc, "l": self.lang},
-        )
-        entry = payload.get(str(appid)) if isinstance(payload, dict) else None
+    def _parse_meta(self, appid: int, entry: Mapping[str, Any] | None) -> GameMeta | None:
         if not entry or not entry.get("success"):
             return None
         data = entry.get("data") or {}
@@ -228,6 +223,40 @@ class SteamClient:
             release_date=str((data.get("release_date") or {}).get("date") or ""),
             is_free=bool(data.get("is_free")),
         )
+
+    async def fetch_app(self, appid: int) -> tuple[GameMeta | None, PriceResult | None]:
+        """One ``appdetails`` call without filters: metadata + price together."""
+        payload = await self._request(
+            APP_DETAILS_URL, {"appids": str(appid), "cc": self.cc, "l": self.lang}
+        )
+        entry = payload.get(str(appid)) if isinstance(payload, dict) else None
+        return self._parse_meta(appid, entry), parse_price_payload(appid, entry, self.cc)
+
+    async def fetch_meta(self, appid: int) -> GameMeta | None:
+        meta, _ = await self.fetch_app(appid)
+        return meta
+
+    async def fetch_metas(self, appids: Sequence[int], batch_size: int = 50) -> dict[int, GameMeta]:
+        """Fetch metadata for many games with few requests (no price filter)."""
+        unique = [int(a) for a in dict.fromkeys(appids) if int(a) > 0]
+        metas: dict[int, GameMeta] = {}
+        for index in range(0, len(unique), batch_size):
+            chunk = unique[index : index + batch_size]
+            try:
+                payload = await self._request(
+                    APP_DETAILS_URL,
+                    {"appids": ",".join(str(a) for a in chunk), "cc": self.cc, "l": self.lang},
+                )
+            except SteamError as exc:
+                logger.warning("metadata batch failed (%s apps): %s", len(chunk), exc)
+                continue
+            for appid in chunk:
+                meta = self._parse_meta(appid, (payload or {}).get(str(appid)))
+                if meta is not None:
+                    metas[appid] = meta
+            if index + batch_size < len(unique):
+                await asyncio.sleep(random.uniform(1.0, 3.0))
+        return metas
 
     async def search(self, term: str, limit: int = 12) -> list[SearchItem]:
         term = (term or "").strip()
