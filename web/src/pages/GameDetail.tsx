@@ -206,7 +206,7 @@ export default function GameDetail() {
                 <p className="mt-2 line-clamp-2 text-xs leading-5 text-muted">{game.short_description}</p>
               ) : null}
               <div className="mt-2 flex flex-wrap gap-1.5">
-                {game.genres?.slice(0, 4).map((genre) => (
+                {genreChips(game.genres).map((genre) => (
                   <Badge key={genre} tone="muted">
                     {genre}
                   </Badge>
@@ -354,15 +354,23 @@ export default function GameDetail() {
         </Card>
       </div>
 
-      {game.developers?.length || game.publishers?.length ? (
+      {game.developers || game.publishers ? (
         <p className="text-center text-[11px] text-dim">
-          {game.developers?.length ? `开发商：${game.developers.join('、')}` : ''}
-          {game.developers?.length && game.publishers?.length ? ' · ' : ''}
-          {game.publishers?.length ? `发行商：${game.publishers.join('、')}` : ''}
+          {game.developers ? `开发商：${game.developers}` : ''}
+          {game.developers && game.publishers ? ' · ' : ''}
+          {game.publishers ? `发行商：${game.publishers}` : ''}
         </p>
       ) : null}
     </div>
   );
+}
+
+function genreChips(genres: string): string[] {
+  return (genres ?? '')
+    .split(',')
+    .map((genre) => genre.trim())
+    .filter(Boolean)
+    .slice(0, 4);
 }
 
 function BackLink() {

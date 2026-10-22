@@ -49,9 +49,11 @@ export interface GameInfo {
   name: string;
   header_image: string;
   short_description: string;
-  developers: string[];
-  publishers: string[];
-  genres: string[];
+  /** Steam 返回的是逗号拼接的字符串：「FromSoftware, Inc.」这类公司名本身可含逗号。 */
+  developers: string;
+  publishers: string;
+  /** 逗号分隔的类型标签，例如「Action, RPG」。 */
+  genres: string;
   release_date: string;
   is_free: boolean;
 }

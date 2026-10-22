@@ -197,6 +197,11 @@ def test_game_detail_requires_watchlist(api):
     assert detail.status_code == 200
     payload = detail.json()
     assert payload["game"]["name"] == "ELDEN RING"
+    # The SPA renders genres as chips; developers/publishers stay plain strings
+    # because Steam company names may themselves contain commas.
+    assert payload["game"]["developers"] == "FromSoftware, Inc."
+    assert payload["game"]["publishers"] == "FromSoftware, Inc."
+    assert payload["game"]["genres"] == "Action, RPG"
     assert payload["watch"]["appid"] == APPD
 
 
@@ -216,7 +221,8 @@ def test_series_builds_step_points_and_anchor(api, app):
     assert payload["currency"] == "CNY"
 
     last_30 = api.get(f"/api/games/{APPD}/series", params={"range": "30d"}).json()
-    assert last_30["points"][0]["t"] < last_30["end"]
+    # The point may coincide with the range end when both come from the same clock tick.
+    assert last_30["points"][0]["t"] <= last_30["end"]
 
 
 def test_series_rejects_unknown_range(api):

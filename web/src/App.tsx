@@ -1,6 +1,7 @@
 import { lazy, Suspense } from 'react';
 import { BrowserRouter, Route, Routes } from 'react-router-dom';
 import AppShell from './components/AppShell';
+import ErrorBoundary from './components/ErrorBoundary';
 import { ToastProvider } from './components/toast';
 import { ConfirmProvider, Spinner } from './components/ui';
 
@@ -24,17 +25,19 @@ export default function App() {
     <BrowserRouter>
       <ToastProvider>
         <ConfirmProvider>
-          <Suspense fallback={<PageFallback />}>
-            <Routes>
-              <Route element={<AppShell />}>
-                <Route index element={<Dashboard />} />
-                <Route path="/games/:appid" element={<GameDetail />} />
-                <Route path="/add" element={<AddGame />} />
-                <Route path="/settings" element={<Settings />} />
-                <Route path="*" element={<NotFound />} />
-              </Route>
-            </Routes>
-          </Suspense>
+          <ErrorBoundary>
+            <Suspense fallback={<PageFallback />}>
+              <Routes>
+                <Route element={<AppShell />}>
+                  <Route index element={<Dashboard />} />
+                  <Route path="/games/:appid" element={<GameDetail />} />
+                  <Route path="/add" element={<AddGame />} />
+                  <Route path="/settings" element={<Settings />} />
+                  <Route path="*" element={<NotFound />} />
+                </Route>
+              </Routes>
+            </Suspense>
+          </ErrorBoundary>
         </ConfirmProvider>
       </ToastProvider>
     </BrowserRouter>
