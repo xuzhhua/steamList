@@ -21,6 +21,8 @@ from typing import Any, Mapping, Sequence
 
 import httpx
 
+from .steam_auth import SteamAuthError
+
 logger = logging.getLogger("steamlist.steam")
 
 APP_DETAILS_URL = "https://store.steampowered.com/api/appdetails"
@@ -309,6 +311,53 @@ class SteamClient:
         payload = await self._request(WISHLIST_URL, {"steamid": steamid})
         response = payload.get("response") or {}
         return [int(item["appid"]) for item in (response.get("items") or []) if item.get("appid")]
+
+    def _login_cookie(self, steamid: str, access_token: str) -> str:
+        return f"steamLoginSecure={steamid}||{access_token}"
+
+    async def fetch_wishlist_private(
+        self,
+        steamid: str,
+        access_token: str,
+        max_pages: int = 20,
+    ) -> list[int]:
+        """Read the owner's wishlist with a web session (works for private profiles).
+
+        The store page ``wishlistdata`` endpoint returns one JSON object per page
+        (``{"<appid>": {...}}``); it redirects to the login page when the session
+        cookie is missing or expired.
+        """
+        steamid = (steamid or "").strip()
+        if not steamid.isdigit() or not access_token:
+            raise SteamAuthError("读取私密心愿单需要已登录的 Steam 账号")
+        cookie = self._login_cookie(steamid, access_token)
+        appids: list[int] = []
+        for page in range(max_pages):
+            await self._throttle()
+            url = WISHLIST_DATA_URL.format(steamid=steamid)
+            try:
+                response = await self._client.get(
+                    url,
+                    params={"p": str(page)},
+                    headers={"Cookie": cookie},
+                    follow_redirects=False,
+                )
+            except httpx.HTTPError as exc:
+                raise SteamError(f"读取私密心愿单失败：{exc}") from exc
+            if response.status_code in (401, 403) or 300 <= response.status_code < 400:
+                raise SteamAuthError("Steam 登录已失效，请在设置页重新扫码登录")
+            if response.status_code != 200:
+                raise SteamError(f"读取私密心愿单失败：HTTP {response.status_code}")
+            try:
+                data = response.json()
+            except ValueError as exc:
+                raise SteamError("Steam 心愿单返回了无法解析的数据") from exc
+            if not isinstance(data, dict) or not data:
+                break
+            appids.extend(int(key) for key in data.keys() if str(key).isdigit())
+            if len(data) < 100:
+                break
+        return appids
 
     async def _get_text(
         self,

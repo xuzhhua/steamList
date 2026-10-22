@@ -7,6 +7,7 @@ from pathlib import Path
 import httpx
 import pytest
 
+from app.services.steam_auth import SteamAuthError
 from app.services.steam_client import SteamClient, SteamError, parse_price_payload
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -368,3 +369,77 @@ def test_get_text_keeps_query_string_when_params_omitted():
     assert asyncio.run(run()) == PROFILE_XML
     assert seen == ["https://steamcommunity.com/profiles/76561197968052866/?xml=1"]
 
+
+
+STEAMID = "76561197960287930"
+
+
+def test_fetch_wishlist_private_sends_cookie_and_pages():
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        page = request.url.params.get("p")
+        if page == "0":
+            data = {str(1000 + i): {"name": f"game {i}"} for i in range(100)}
+        else:
+            data = {"2000": {"name": "last"}}
+        return httpx.Response(200, json=data)
+
+    async def run():
+        client = make_client(handler)
+        try:
+            return await client.fetch_wishlist_private(STEAMID, "token-1")
+        finally:
+            await client.aclose()
+
+    appids = asyncio.run(run())
+    assert len(appids) == 101
+    assert appids[0] == 1000
+    assert appids[-1] == 2000
+    assert [r.url.params.get("p") for r in seen] == ["0", "1"]
+    assert seen[0].headers["cookie"] == "steamLoginSecure=" + STEAMID + "||token-1"
+
+
+def test_fetch_wishlist_private_redirect_means_relogin():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(302, headers={"Location": "https://store.steampowered.com/login/"})
+
+    async def run():
+        client = make_client(handler)
+        try:
+            await client.fetch_wishlist_private(STEAMID, "expired")
+        finally:
+            await client.aclose()
+
+    with pytest.raises(SteamAuthError, match="重新扫码"):
+        asyncio.run(run())
+
+
+def test_fetch_wishlist_private_http_error():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(500)
+
+    async def run():
+        client = make_client(handler)
+        try:
+            await client.fetch_wishlist_private(STEAMID, "token")
+        finally:
+            await client.aclose()
+
+    with pytest.raises(SteamError):
+        asyncio.run(run())
+
+
+def test_fetch_wishlist_private_empty_object():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={})
+
+    async def run():
+        client = make_client(handler)
+        try:
+            return await client.fetch_wishlist_private(STEAMID, "token")
+        finally:
+            await client.aclose()
+
+    assert asyncio.run(run()) == []

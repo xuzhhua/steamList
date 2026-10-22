@@ -260,3 +260,24 @@ class BackupOut(BaseModel):
 class BackupListResponse(BaseModel):
     backups: list[BackupOut] = Field(default_factory=list)
     latest: BackupOut | None = None
+
+
+class QRStartResponse(BaseModel):
+    session_id: str
+    challenge_url: str
+    interval: int
+    expires_in_seconds: int
+
+
+class QRStatusResponse(BaseModel):
+    status: str
+    account_name: str | None = None
+    steamid: str | None = None
+    message: str | None = None
+
+
+class SteamSessionResponse(BaseModel):
+    connected: bool = False
+    account_name: str = ""
+    steamid: str = ""
+    connected_at: str | None = None

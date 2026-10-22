@@ -185,3 +185,88 @@ def test_import_unknown_profile(api, fake):
     body = api.post("/api/watchlist/import", json={"steamid": STEAMID}).json()
     assert body["errors"]
     assert "找不到" in body["errors"][0]
+
+
+class FakeAuth:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str]] = []
+        self.error: Exception | None = None
+
+    async def access_token(self, refresh_token: str, steamid: str) -> str:
+        self.calls.append((refresh_token, steamid))
+        if self.error is not None:
+            raise self.error
+        return "access-token-1"
+
+
+def _login(app, steamid: str = STEAMID, name: str = "TestUser") -> None:
+    from app.services.settings_store import update_settings
+
+    with app.state.db.session() as session:
+        update_settings(
+            session,
+            {
+                "steam_refresh_token": "refresh-1",
+                "steamid": steamid,
+                "steam_account_name": name,
+            },
+        )
+        session.commit()
+
+
+def test_import_uses_private_endpoint_when_logged_in(api, app, fake):
+    from app.services.steam_auth import SteamAuthError  # noqa: F401 - documented behaviour
+
+    auth = FakeAuth()
+    app.state.steam_auth = auth
+    _login(app)
+
+    private_calls: list[tuple[str, str]] = []
+    public_calls: list[str] = []
+
+    async def fetch_wishlist_private(steamid: str, access_token: str):
+        private_calls.append((steamid, access_token))
+        return [APPD]
+
+    async def fetch_wishlist(steamid: str):
+        public_calls.append(steamid)
+        return [APPD]
+
+    fake.fetch_wishlist_private = fetch_wishlist_private
+    fake.fetch_wishlist = fetch_wishlist
+
+    body = api.post("/api/watchlist/import", json={}).json()
+    assert body["imported"] == 1
+    assert private_calls == [(STEAMID, "access-token-1")]
+    assert public_calls == []
+    assert auth.calls == [("refresh-1", STEAMID)]
+
+
+def test_import_private_falls_back_to_public_for_other_account(api, app, fake):
+    auth = FakeAuth()
+    app.state.steam_auth = auth
+    _login(app, steamid="76561197968052866", name="gaben")
+
+    async def fetch_wishlist_private(steamid: str, access_token: str):  # pragma: no cover
+        raise AssertionError("private endpoint must not be used for another account")
+
+    fake.fetch_wishlist_private = fetch_wishlist_private
+    fake.wishlist = []
+
+    body = api.post("/api/watchlist/import", json={"steamid": STEAMID}).json()
+    assert body["imported"] == 0
+    assert any("不一致" in error for error in body["errors"])
+    assert auth.calls == []
+
+
+def test_import_private_relogin_required_returns_401(api, app, fake):
+    from app.services.steam_auth import SteamAuthError
+
+    auth = FakeAuth()
+    auth.error = SteamAuthError("Steam 登录已失效，请在设置页重新扫码登录")
+    app.state.steam_auth = auth
+    _login(app)
+
+    response = api.post("/api/watchlist/import", json={})
+    assert response.status_code == 401
+    assert "重新扫码" in response.json()["detail"]

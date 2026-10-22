@@ -8,9 +8,12 @@ import type {
   NotificationLogItem,
   NotificationTestResult,
   RangeKey,
+  QrStart,
+  QrStatus,
   SearchItem,
   SeriesResponse,
   Settings,
+  SteamSession,
   StatsResponse,
   WatchItem,
   WatchlistResponse,
@@ -168,3 +171,14 @@ export function channelConfigSummary(channel: Channel): string {
       return '';
   }
 }
+
+/** Steam 账号扫码登录（用于导入私密心愿单）。*/
+export const steamApi = {
+  getSession: () => request<SteamSession>('/steam/session'),
+
+  startQr: () => request<QrStart>('/steam/qr', { method: 'POST' }),
+
+  pollQr: (sessionId: string) => request<QrStatus>(`/steam/qr/${encodeURIComponent(sessionId)}`),
+
+  disconnect: () => request<SteamSession>('/steam/session', { method: 'DELETE' }),
+};

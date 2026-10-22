@@ -9,10 +9,20 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from .api import backup, games, health, jobs, notifications, settings as settings_api, watchlist
+from .api import (
+    backup,
+    games,
+    health,
+    jobs,
+    notifications,
+    settings as settings_api,
+    steam_auth as steam_auth_api,
+    watchlist,
+)
 from .config import Settings, get_settings
 from .db import Database
 from .services.scheduler import PollService, build_scheduler
+from .services.steam_auth import SteamAuthService
 from .services.steam_client import SteamClient
 
 logger = logging.getLogger("steamlist")
@@ -56,6 +66,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app.state.steam_factory = steam_factory
     app.state.notifier_transport = None
+    app.state.steam_auth = SteamAuthService(settings)
 
     poller = PollService(database, steam_factory, tz_name=settings.timezone)
     app.state.poller = poller
@@ -70,6 +81,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(jobs.router, prefix="/api")
     app.include_router(notifications.router, prefix="/api")
     app.include_router(backup.router, prefix="/api")
+    app.include_router(steam_auth_api.router, prefix="/api")
 
     _mount_frontend(app)
     return app

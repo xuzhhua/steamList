@@ -21,6 +21,9 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "next_poll_at": None,
     "meta_refresh_at": None,
     "wishlist_enabled": True,
+    "steam_refresh_token": "",
+    "steam_account_name": "",
+    "steam_connected_at": None,
 }
 
 

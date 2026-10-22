@@ -20,6 +20,7 @@ from ..schemas import (
 )
 from ..services.pricing import ensure_game, ensure_placeholder_game, ingest_prices
 from ..services.settings_store import get_settings as load_settings, update_settings
+from ..services.steam_auth import SteamAuthError
 from ..services.steam_client import SteamError, SteamClient
 from ..services.wishlist import import_wishlist
 from ..timeutil import to_iso, utcnow
@@ -136,22 +137,33 @@ def import_steam_wishlist(
         raise HTTPException(status_code=400, detail="steamid is required (pass it or save it in settings)")
 
     cc = str(settings["cc"])
+    refresh_token = str(settings.get("steam_refresh_token") or "")
+    login_steamid = str(settings.get("steamid") or "")
+    login_name = str(settings.get("steam_account_name") or "")
+    auth = getattr(request.app.state, "steam_auth", None)
 
     async def work(client: SteamClient):
         resolved = await client.resolve_steamid(steamid)
-        ids = [int(appid) for appid in (await client.fetch_wishlist(resolved))][: payload.limit]
+        private = bool(refresh_token and auth is not None and resolved == login_steamid)
+        if private:
+            token = await auth.access_token(refresh_token, login_steamid)
+            ids = (await client.fetch_wishlist_private(resolved, token))[: payload.limit]
+        else:
+            ids = [int(appid) for appid in (await client.fetch_wishlist(resolved))][: payload.limit]
         if not ids:
             profile = await client.fetch_profile(resolved)
             visibility = await client.wishlist_visibility(resolved)
-            return resolved, ids, {}, {}, profile, visibility
+            return resolved, ids, {}, {}, profile, visibility, private
         prices = await client.fetch_prices(ids)
         metas = await client.fetch_metas(ids)
-        return resolved, ids, prices, metas, None, ""
+        return resolved, ids, prices, metas, None, "", private
 
     try:
-        resolved_steamid, appids, prices, metas, profile, visibility = run_client_work(
+        resolved_steamid, appids, prices, metas, profile, visibility, used_private = run_client_work(
             request.app, cc, str(settings["lang"]), work
         )
+    except SteamAuthError as exc:
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
     except SteamError as exc:
         logger.warning("wishlist import failed: %s", exc)
         raise HTTPException(status_code=502, detail=f"steam wishlist fetch failed: {exc}") from exc
@@ -159,6 +171,12 @@ def import_steam_wishlist(
     errors: list[str] = []
     if not appids:
         errors.append(_empty_wishlist_reason(resolved_steamid, profile, visibility))
+        if refresh_token and not used_private and login_steamid and resolved_steamid != login_steamid:
+            errors.append(
+                f"当前已登录 Steam 账号「{login_name or login_steamid}」，"
+                f"与要导入的账号（{resolved_steamid}）不一致；"
+                "如需导入该账号的私密心愿单，请先在设置页断开并改用该账号扫码登录。"
+            )
     report = import_wishlist(db, appids, metas, prices, cc)
     update_settings(db, {"wishlist_last_import_at": to_iso(utcnow()), "steamid": resolved_steamid})
     db.commit()

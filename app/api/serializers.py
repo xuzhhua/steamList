@@ -7,7 +7,15 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..models import Game, JobRun, NotificationChannel, WatchItem, WatchState
-from ..schemas import ChannelOut, GameOut, JobRunOut, SettingsOut, StateOut, WatchItemOut
+from ..schemas import (
+    ChannelOut,
+    GameOut,
+    JobRunOut,
+    SettingsOut,
+    StateOut,
+    SteamSessionResponse,
+    WatchItemOut,
+)
 from ..services.settings_store import get_settings as load_settings
 from ..timeutil import to_iso
 
@@ -114,4 +122,14 @@ def settings_out(session: Session) -> SettingsOut:
         next_poll_at=stored["next_poll_at"],
         meta_refresh_at=stored["meta_refresh_at"],
         channels=channels_out(session),
+    )
+
+
+def steam_session_out(stored: dict) -> SteamSessionResponse:
+    refresh_token = str(stored.get("steam_refresh_token") or "")
+    return SteamSessionResponse(
+        connected=bool(refresh_token),
+        account_name=str(stored.get("steam_account_name") or ""),
+        steamid=str(stored.get("steamid") or ""),
+        connected_at=stored.get("steam_connected_at"),
     )

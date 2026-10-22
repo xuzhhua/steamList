@@ -246,7 +246,7 @@ export default function AddGame() {
         <Card className="p-4 sm:p-5">
           <SectionHeader
             title="从 Steam 心愿单导入"
-            description="支持 SteamID64、个人资料链接或自定义链接名；需把 Steam 隐私设置中的「我的个人资料」设为公开"
+            description="支持 SteamID64、个人资料链接或自定义链接名；在「设置」中扫码登录后可导入私密心愿单"
           />
           <div className="flex items-end gap-2">
             <div className="flex-1">
@@ -292,7 +292,7 @@ export default function AddGame() {
           ) : (
             <p className="mt-2 text-[11px] leading-5 text-dim">
               留空则使用「设置」中保存的 SteamID。导入会跳过已关注的游戏。
-              心愿单读取的是公开数据：若提示不可见，请到 Steam → 个人资料 → 编辑个人资料 → 隐私设置，把「我的个人资料」设为「公开」。
+              未连接 Steam 账号时只能读取公开心愿单：若提示不可见，请到「设置 → Steam 账号」扫码登录，或把 Steam 隐私设置中的「我的个人资料」设为「公开」。
             </p>
           )}
         </Card>

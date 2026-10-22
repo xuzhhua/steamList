@@ -193,3 +193,26 @@ export interface BackupList {
   backups: BackupItem[];
   latest: BackupItem | null;
 }
+
+export interface SteamSession {
+  connected: boolean;
+  account_name: string;
+  steamid: string;
+  connected_at: string | null;
+}
+
+export interface QrStart {
+  session_id: string;
+  challenge_url: string;
+  interval: number;
+  expires_in_seconds: number;
+}
+
+export type QrStatusValue = 'pending' | 'scanned' | 'success' | 'expired' | string;
+
+export interface QrStatus {
+  status: QrStatusValue;
+  account_name: string | null;
+  steamid: string | null;
+  message: string | null;
+}

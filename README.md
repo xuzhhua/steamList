@@ -9,7 +9,8 @@
 - **仪表盘**：关注游戏卡片网格、当前价 / 原价 / 折扣、历史低价与命中次数、汇总统计、筛选排序、一键触发采集。
 - **游戏详情**：ECharts 阶梯价格走势（当前价 + 原价 + ATL 参考线 + 记录起点标记）、时间范围切换（30 天 / 90 天 / 180 天 / 1 年 / 全部）、打折事件时间线、均价 / 频次 / 力度统计、目标价与提醒设置。
 - **添加游戏**：Steam 商店搜索、直接粘贴 appid、Steam 心愿单批量导入。
-- **设置**：采集计划（每日 / 每 N 小时、执行时刻、时区）、商店区域与语言、代理、通知通道（Bark / 邮件 / Webhook）与测试、通知日志、数据库备份（创建 / 下载）。
+- **私密心愿单**：在设置页扫码登录 Steam（手机 App 确认）后，可导入自己「仅好友可见 / 私密」的心愿单。
+- **设置**：采集计划（每日 / 每 N 小时、执行时刻、时区）、商店区域与语言、代理、Steam 账号、通知通道（Bark / 邮件 / Webhook）与测试、通知日志、数据库备份（创建 / 下载）。
 - **免登录**：设计用于内网 / Tailscale / VPN 环境，不内置用户体系，请勿直接暴露公网。
 
 ## 技术架构
@@ -90,7 +91,17 @@ pnpm dev
 | `STEAMLIST_ENABLE_SCHEDULER` | `true` | 是否启用后台轮询线程 |
 | `STEAMLIST_LOG_LEVEL` | `INFO` | 日志级别 |
 
-页面可配置项：轮询开关 / 间隔（小时）/ 执行时刻、区域、语言、SteamID（心愿单导入用，需公开资料）、代理、通知通道、目标价与折扣阈值（每个游戏单独设置）。
+页面可配置项：轮询开关 / 间隔（小时）/ 执行时刻、区域、语言、SteamID（心愿单导入用）、代理、Steam 账号、通知通道、目标价与折扣阈值（每个游戏单独设置）。
+
+## 扫码登录 Steam（导入私密心愿单）
+
+Steam 的公开心愿单接口只返回公开数据。若只想读取**自己的私密心愿单**（资料 / 心愿单设为仅好友可见或私密），可在「设置 → Steam 账号」点击「扫码登录」，用 Steam 手机 App 扫码并确认。
+
+- 流程：`IAuthenticationService/BeginAuthSessionViaQR` 生成二维码 → App 确认 → 轮询 `PollAuthSessionStatus` 拿到 refresh token → 导入时用 `GenerateAccessTokenForApp` 换短期 access token，以 `steamLoginSecure` Cookie 读取 `wishlist/profiles/<steamid>/wishlistdata`。
+- 存储：refresh token 仅保存在本机 SQLite 的 `app_settings` 表（随 `./data` 卷持久化），不会发送给任何第三方；access token 只缓存在进程内存。
+- 断开：设置页「断开」会在服务端调用 `RevokeToken` 吊销并清除本地令牌；删除 `./data` 也会一并清除。
+- 限制：只能导入**已登录账号本人**的私密心愿单（接口按登录态返回）；若填入其他账号，仍走公开接口并给出提示。登录会话在 300 秒内有效，过期后重新生成二维码即可。
+- 未登录时功能完全可用，只是无法读取不可见的心愿单。
 
 ## 部署到远程主机
 
@@ -164,6 +175,11 @@ deploy.ps1           远程部署脚本
 
 **容器内访问 Steam 失败？** 检查 `STEAMLIST_PROXY_URL` 是否配置为 `host.docker.internal` 形式，并确认宿主机代理允许局域网/容器访问。
 
-**导入心愿单提示「心愿单不可见」？** Steam 心愿单接口只能读取公开数据。请打开 Steam → 个人资料 → 编辑个人资料 → 隐私设置，把「我的个人资料」设为「公开」（若列表里有「心愿单」选项也设为「公开」），保存后再导入。输入支持三种形式：17 位 SteamID64、`steamcommunity.com/profiles/...` 或 `steamcommunity.com/id/...` 链接、以及自定义链接名（如 `gaben`）。若提示「资料已公开但心愿单里没有游戏」，说明心愿单确实为空或已隐藏。
+**导入心愿单提示「心愿单不可见」？** 两种情况：
+
+1. **自己的私密心愿单**：到「设置 → Steam 账号」扫码登录（Steam 手机 App 确认）后重新导入，即可读取仅好友可见 / 私密的心愿单；
+2. **别人的公开心愿单**：对方需要打开 Steam → 个人资料 → 编辑个人资料 → 隐私设置，把「我的个人资料」设为「公开」（若列表里有「心愿单」选项也设为「公开」）。
+
+输入支持三种形式：17 位 SteamID64、`steamcommunity.com/profiles/...` 或 `steamcommunity.com/id/...` 链接、以及自定义链接名（如 `gaben`）。若提示「资料已公开但心愿单里没有游戏」，说明心愿单确实为空；若提示「当前已登录账号与要导入的账号不一致」，请先在设置页断开并改用目标账号扫码登录。
 
 **运行 `.\deploy.ps1` 报「未对文件进行数字签名 / 无法加载文件」？** 这是 PowerShell 执行策略拦截了未签名脚本。改用 `.\deploy.cmd -RemoteUser ...`，或显式执行 `powershell -NoProfile -ExecutionPolicy Bypass -File .\deploy.ps1 ...`；也可 `Unblock-File .\deploy.ps1` 后重试（仅解除文件锁定，对 AllSigned 策略无效）。

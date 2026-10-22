@@ -42,6 +42,7 @@ import {
   useConfirm,
 } from '../components/ui';
 import { useToast } from '../components/toast';
+import SteamLoginCard from '../components/SteamLoginCard';
 
 const KIND_LABEL: Record<ChannelKind, string> = {
   bark: 'Bark',
@@ -423,7 +424,7 @@ export default function SettingsPage() {
               ))}
             </Select>
           </Field>
-          <Field label="SteamID / 个人资料链接 / 自定义链接名" hint="导入心愿单用，需要公开的个人资料">
+          <Field label="SteamID / 个人资料链接 / 自定义链接名" hint="导入心愿单用；连接账号后可导入私密心愿单">
             <Input
               value={form.steamid}
               placeholder="7656119… 或 steamcommunity.com/id/xxx"
@@ -452,6 +453,8 @@ export default function SettingsPage() {
           上次导入：{data?.wishlist_last_import_at ? formatDateTime(data.wishlist_last_import_at) : '从未导入'}
         </p>
       </Card>
+
+      <SteamLoginCard />
 
       <Card className="p-4 sm:p-5">
         <SectionHeader
