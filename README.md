@@ -94,17 +94,25 @@ pnpm dev
 
 ## 部署到远程主机
 
-`deploy.ps1` 适用于 Windows 开发机 → Windows Docker 主机（通过 OpenSSH Server）：
+`deploy.ps1` 适用于 Windows 开发机 → Windows Docker 主机（通过 OpenSSH Server）。
 
-```powershell
-# 若系统执行策略为 Restricted，先用 powershell -ExecutionPolicy Bypass -File .\deploy.ps1 ...
-.\deploy.ps1 -RemoteUser docker -RemoteHost 192.168.173.22 `
-    -RemotePath D:\ProgramFiles\steamlist `
-    -IdentityFile ~\.ssh\DockerPub_ed25519 `
+**推荐用 `deploy.cmd`**（内部以 `-ExecutionPolicy Bypass` 调用 PowerShell，不受系统执行策略限制）：
+
+```bat
+deploy.cmd -RemoteUser docker -RemoteHost 192.168.173.22 ^
+    -RemotePath D:\ProgramFiles\steamlist ^
+    -IdentityFile %USERPROFILE%\.ssh\DockerPub_ed25519 ^
     -ProxyUrl 127.0.0.1:10808
 
-# 只看将执行的步骤
-.\deploy.ps1 -RemoteUser docker -DryRun
+deploy.cmd -RemoteUser docker -DryRun
+```
+
+直接调用 PowerShell 脚本时同样需要绕过执行策略（`deploy.ps1` 未签名）：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\deploy.ps1 -RemoteUser docker -RemoteHost 192.168.173.22 ...
+# 或一次性放行当前用户（需自行评估安全影响）
+# Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
 ```
 
 流程：本地 `docker build`（前端在镜像内构建）→ `docker save` → 打包项目（排除 `.git`、`data`、`node_modules`、构建产物）→ `scp` → 远端解压 → `docker load` → `docker compose -p steamlist up -d --no-build`。远端已有 `.env` 与 `./data` 会保留；传入 `-ProxyUrl` 时会更新 `.env` 中的 `STEAMLIST_PROXY_URL`。
@@ -155,3 +163,5 @@ deploy.ps1           远程部署脚本
 **通知重复怎么办？** 同一天、同一游戏、同一规则、同一价格只发送一次（24 小时去重）。
 
 **容器内访问 Steam 失败？** 检查 `STEAMLIST_PROXY_URL` 是否配置为 `host.docker.internal` 形式，并确认宿主机代理允许局域网/容器访问。
+
+**运行 `.\deploy.ps1` 报「未对文件进行数字签名 / 无法加载文件」？** 这是 PowerShell 执行策略拦截了未签名脚本。改用 `.\deploy.cmd -RemoteUser ...`，或显式执行 `powershell -NoProfile -ExecutionPolicy Bypass -File .\deploy.ps1 ...`；也可 `Unblock-File .\deploy.ps1` 后重试（仅解除文件锁定，对 AllSigned 策略无效）。
