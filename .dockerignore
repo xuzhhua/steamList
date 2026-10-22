@@ -1,0 +1,37 @@
+# VCS / editors
+.git
+.gitignore
+.github
+.idea
+.vscode
+
+# Python
+.venv
+__pycache__
+*.py[cod]
+.pytest_cache
+*.egg-info
+
+# Local data / runtime
+data
+*.db
+*.db-wal
+*.db-shm
+.env
+
+# Frontend build artefacts (built inside the image)
+web/node_modules
+web/dist
+web/.corepack
+web/.pnpm-store
+web/.npm-cache
+web/.cache
+app/static
+
+# Tests / docs / deploy artefacts
+tests
+docs
+deploy-tmp
+.tmp-build
+*.tar
+*.zip

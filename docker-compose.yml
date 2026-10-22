@@ -1,0 +1,38 @@
+name: steamlist
+
+services:
+  steamlist:
+    image: steamlist:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: steamlist
+    restart: unless-stopped
+    ports:
+      - "${STEAMLIST_PORT:-8080}:8080"
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+      STEAMLIST_DATA_DIR: /app/data
+      STEAMLIST_ENABLE_SCHEDULER: ${STEAMLIST_ENABLE_SCHEDULER:-true}
+      STEAMLIST_TIMEZONE: ${STEAMLIST_TIMEZONE:-Asia/Shanghai}
+      STEAMLIST_DEFAULT_CC: ${STEAMLIST_DEFAULT_CC:-cn}
+      STEAMLIST_DEFAULT_LANG: ${STEAMLIST_DEFAULT_LANG:-schinese}
+      # Set STEAMLIST_PROXY_URL (e.g. http://host.docker.internal:10808) when the
+      # host reaches Steam through a local proxy / Watt Toolkit; leave empty otherwise.
+      STEAMLIST_PROXY_URL: ${STEAMLIST_PROXY_URL:-}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./data:/app/data
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/api/health', timeout=3)",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s

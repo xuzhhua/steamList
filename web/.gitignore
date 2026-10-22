@@ -1,0 +1,14 @@
+# 依赖与构建产物
+node_modules/
+dist/
+*.local
+
+# 本地工具缓存（受限环境安装 pnpm 时产生，不入库）
+.pnpm-store/
+.pnpm-cache/
+.npm-cache/
+.corepack/
+.cache/
+
+# 构建日志与临时诊断文件
+build.log
