@@ -186,11 +186,11 @@ deploy.ps1           远程部署脚本
 
 ## 许可
 
-本项目以 **GNU Affero General Public License v3.0（AGPL-3.0 或更高版本）** 发布，完整条款见 [LICENSE](LICENSE)。
+本项目以 **MIT License** 发布，完整条款见 [LICENSE](LICENSE)。
 
-- 你可以自由使用、修改、分发本项目；分发修改版时需同样以 AGPL-3.0 开源。
-- AGPL 第 13 条：如果把修改后的版本作为网络服务提供给他人使用，需要向这些用户提供对应的完整源码。部署本项目的未修改版本时，提供本仓库地址即可。
-- 本项目按「现状」提供，不附带任何担保；详见 LICENSE 第 15、16 条。
+- 你可以自由使用、修改、分发本项目，也可用于商业用途，只需在副本或实质性部分中保留版权声明与许可声明。
+- 不要求开源你的修改，也没有网络服务相关的源码提供义务（MIT 不是 copyleft 许可）。
+- 本项目按「现状」提供，不附带任何担保；作者不对使用本项目造成的损失负责。
 - 前端依赖（React、ECharts 等）、Python 依赖与 Steam 商店数据分别遵循各自的许可与使用条款；Steam 价格数据来自非官方接口，仅供个人自用。
 
-Copyright (C) 2026 SteamList contributors
+Copyright (c) 2026 SteamList contributors
