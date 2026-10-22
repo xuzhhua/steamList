@@ -183,3 +183,14 @@ deploy.ps1           远程部署脚本
 输入支持三种形式：17 位 SteamID64、`steamcommunity.com/profiles/...` 或 `steamcommunity.com/id/...` 链接、以及自定义链接名（如 `gaben`）。若提示「资料已公开但心愿单里没有游戏」，说明心愿单确实为空；若提示「当前已登录账号与要导入的账号不一致」，请先在设置页断开并改用目标账号扫码登录。
 
 **运行 `.\deploy.ps1` 报「未对文件进行数字签名 / 无法加载文件」？** 这是 PowerShell 执行策略拦截了未签名脚本。改用 `.\deploy.cmd -RemoteUser ...`，或显式执行 `powershell -NoProfile -ExecutionPolicy Bypass -File .\deploy.ps1 ...`；也可 `Unblock-File .\deploy.ps1` 后重试（仅解除文件锁定，对 AllSigned 策略无效）。
+
+## 许可
+
+本项目以 **GNU Affero General Public License v3.0（AGPL-3.0 或更高版本）** 发布，完整条款见 [LICENSE](LICENSE)。
+
+- 你可以自由使用、修改、分发本项目；分发修改版时需同样以 AGPL-3.0 开源。
+- AGPL 第 13 条：如果把修改后的版本作为网络服务提供给他人使用，需要向这些用户提供对应的完整源码。部署本项目的未修改版本时，提供本仓库地址即可。
+- 本项目按「现状」提供，不附带任何担保；详见 LICENSE 第 15、16 条。
+- 前端依赖（React、ECharts 等）、Python 依赖与 Steam 商店数据分别遵循各自的许可与使用条款；Steam 价格数据来自非官方接口，仅供个人自用。
+
+Copyright (C) 2026 SteamList contributors

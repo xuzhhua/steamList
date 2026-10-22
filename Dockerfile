@@ -23,6 +23,7 @@ COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app/ ./app/
+COPY LICENSE ./LICENSE
 COPY --from=web /web/dist ./app/static/
 
 RUN mkdir -p /app/data
