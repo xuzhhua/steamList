@@ -1,11 +1,17 @@
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Bell, BellOff, Target, TrendingDown, History } from 'lucide-react';
 import type { WatchItem } from '../lib/types';
 import { formatDate, formatDiscount, formatPrice, formatRelative } from '../lib/format';
 
 export default function GameCard({ item }: { item: WatchItem }) {
+  const [imageFailed, setImageFailed] = useState(false);
   const discount = item.current_discount_percent;
   const belowTarget = item.target_price_cents !== null && item.current_final_cents <= item.target_price_cents;
+
+  useEffect(() => {
+    setImageFailed(false);
+  }, [item.header_image]);
 
   return (
     <Link
@@ -13,11 +19,12 @@ export default function GameCard({ item }: { item: WatchItem }) {
       className="panel panel-hover group block overflow-hidden"
     >
       <div className="relative aspect-[460/215] w-full overflow-hidden bg-panel-3">
-        {item.header_image ? (
+        {item.header_image && !imageFailed ? (
           <img
             src={item.header_image}
             alt={item.name}
             loading="lazy"
+            onError={() => setImageFailed(true)}
             className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
           />
         ) : (

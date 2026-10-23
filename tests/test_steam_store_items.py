@@ -50,7 +50,7 @@ def test_fetch_metas_uses_store_items_and_us_fallback():
     elden = metas[1245620]
     assert elden.name == "艾尔登法环"
     assert elden.header_image == (
-        "https://cdn.akamai.steamstatic.com/steam/apps/1245620/header.jpg?t=1790290043"
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1245620/header.jpg?t=1790290043"
     )
     assert elden.short_description.startswith("艾尔登法环")
     assert elden.developers == "FromSoftware, Inc."
@@ -61,7 +61,7 @@ def test_fetch_metas_uses_store_items_and_us_fallback():
 
     assert metas[730].is_free is True
     assert metas[999999].header_image == (
-        "https://cdn.akamai.steamstatic.com/steam/apps/999999/"
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/999999/"
         "c44857fe223dcf31ce603b756f8f01d89a4f0fce/header.jpg?t=7"
     )
 

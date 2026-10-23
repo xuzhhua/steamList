@@ -58,3 +58,32 @@ def test_watch_item_and_price_change(session):
     assert item.target_price_cents == 19900
     assert item.notify_enabled is False
     assert session.execute(select(PriceChange)).scalar_one().final_cents == 14900
+
+
+LEGACY_HEADER = (
+    "https://cdn.akamai.steamstatic.com/steam/apps/2827750/"
+    "d7d0e546e2ed7a1cd07f3abfdc2b65f140201b24/header.jpg?t=1792561823"
+)
+ASSET_HEADER = (
+    "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2827750/"
+    "d7d0e546e2ed7a1cd07f3abfdc2b65f140201b24/header.jpg?t=1792561823"
+)
+
+
+def test_create_all_rewrites_legacy_cover_urls(tmp_path):
+    from app.db import Database
+
+    db_path = tmp_path / "migrate.db"
+    first = Database(db_path)
+    first.create_all()
+    with first.session() as session:
+        session.add(Game(appid=2827750, name="致命利爪", header_image=LEGACY_HEADER))
+        session.commit()
+    first.dispose()
+
+    second = Database(db_path)
+    second.create_all()
+    with second.session() as session:
+        game = session.get(Game, 2827750)
+        assert game.header_image == ASSET_HEADER
+    second.dispose()

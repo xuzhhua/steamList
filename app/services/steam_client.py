@@ -41,7 +41,9 @@ WISHLIST_COUNT_URL = "https://api.steampowered.com/IWishlistService/GetWishlistI
 PROFILE_XML_URL = "https://steamcommunity.com/profiles/{steamid}/?xml=1"
 VANITY_XML_URL = "https://steamcommunity.com/id/{vanity}/?xml=1"
 WISHLIST_DATA_URL = "https://store.steampowered.com/wishlist/profiles/{steamid}/wishlistdata/"
-HEADER_IMAGE_URL = "https://cdn.akamai.steamstatic.com/steam/apps/{appid}/header.jpg"
+HEADER_IMAGE_URL = (
+    "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{appid}/header.jpg"
+)
 
 _STEAMID64_RE = re.compile(r"^\d{17}$")
 _PROFILE_URL_RE = re.compile(r"/profiles/(\d{17})")
@@ -61,7 +63,9 @@ def xml_value(xml_text: str, tag: str) -> str:
 
 BATCH_SIZE = 100
 STORE_ITEM_BATCH = 50
-CDN_BASE = "https://cdn.akamai.steamstatic.com/"
+# Steam moved store assets behind the hashed "store_item_assets" tree on the
+# shared CDN; the old cdn.akamai host 404s for games with hashed asset folders.
+CDN_BASE = "https://shared.akamai.steamstatic.com/store_item_assets/"
 DEFAULT_CURRENCY = {
     "cn": "CNY",
     "us": "USD",

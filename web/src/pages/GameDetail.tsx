@@ -83,6 +83,11 @@ export default function GameDetail() {
   const [notifyEnabled, setNotifyEnabled] = useState(true);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [imageFailed, setImageFailed] = useState(false);
+
+  useEffect(() => {
+    setImageFailed(false);
+  }, [game?.header_image]);
 
   useEffect(() => {
     if (!watch) return;
@@ -170,8 +175,13 @@ export default function GameDetail() {
       <Card className="overflow-hidden">
         <div className="grid gap-0 md:grid-cols-[320px_1fr]">
           <div className="relative aspect-[460/215] w-full bg-panel-3 md:aspect-auto md:h-full">
-            {game.header_image ? (
-              <img src={game.header_image} alt={game.name} className="h-full w-full object-cover" />
+            {game.header_image && !imageFailed ? (
+              <img
+                src={game.header_image}
+                alt={game.name}
+                className="h-full w-full object-cover"
+                onError={() => setImageFailed(true)}
+              />
             ) : (
               <div className="flex h-full min-h-40 items-center justify-center text-2xl font-semibold text-dim">
                 {game.name.slice(0, 2)}
