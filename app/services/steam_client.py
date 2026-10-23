@@ -2,9 +2,15 @@
 
 Only public, undocumented-in-places storefront endpoints are used:
 
-* ``store.steampowered.com/api/appdetails``  - price_overview + metadata
+* ``store.steampowered.com/api/appdetails``  - price_overview + single-app metadata
+* ``api.steampowered.com/IStoreBrowseService/GetItems/v1`` - bulk metadata
 * ``store.steampowered.com/api/storesearch`` - search suggestions
 * ``api.steampowered.com/IWishlistService/GetWishlist/v1`` - public wishlist
+
+Steam only honours multiple appids on ``appdetails`` when ``filters=price_overview``
+is passed; without filters (or with any other filter) it answers HTTP 400. Bulk
+metadata therefore goes through ``IStoreBrowseService/GetItems``, which accepts
+many appids per request and needs no API key.
 
 Steam documents roughly 200 requests / 5 minutes for appdetails. We stay far
 below that: one request per 100 appids, with extra spacing between batches.
@@ -12,11 +18,13 @@ below that: one request per 100 appids, with extra spacing between batches.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import random
 import re
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from datetime import datetime, timezone
 from typing import Any, Mapping, Sequence
 
 import httpx
@@ -26,6 +34,7 @@ from .steam_auth import SteamAuthError
 logger = logging.getLogger("steamlist.steam")
 
 APP_DETAILS_URL = "https://store.steampowered.com/api/appdetails"
+STORE_ITEMS_URL = "https://api.steampowered.com/IStoreBrowseService/GetItems/v1/"
 STORE_SEARCH_URL = "https://store.steampowered.com/api/storesearch/"
 WISHLIST_URL = "https://api.steampowered.com/IWishlistService/GetWishlist/v1/"
 WISHLIST_COUNT_URL = "https://api.steampowered.com/IWishlistService/GetWishlistItemCount/v1/"
@@ -51,6 +60,8 @@ def xml_value(xml_text: str, tag: str) -> str:
 
 
 BATCH_SIZE = 100
+STORE_ITEM_BATCH = 50
+CDN_BASE = "https://cdn.akamai.steamstatic.com/"
 DEFAULT_CURRENCY = {
     "cn": "CNY",
     "us": "USD",
@@ -87,7 +98,8 @@ class GameMeta:
     publishers: str
     genres: str
     release_date: str
-    is_free: bool
+    is_free: bool | None = None
+    """``None`` when the endpoint does not report it (e.g. bulk store metadata)."""
 
 
 @dataclass(frozen=True)
@@ -259,27 +271,137 @@ class SteamClient:
         meta, _ = await self.fetch_app(appid)
         return meta
 
-    async def fetch_metas(self, appids: Sequence[int], batch_size: int = 50) -> dict[int, GameMeta]:
-        """Fetch metadata for many games with few requests (no price filter)."""
-        unique = [int(a) for a in dict.fromkeys(appids) if int(a) > 0]
+    def _parse_store_item(self, appid: int, item: Mapping[str, Any] | None) -> GameMeta | None:
+        """Map one ``IStoreBrowseService/GetItems`` entry to :class:`GameMeta`."""
+        if not item or not item.get("success") or item.get("visible") is False:
+            return None
+        assets = item.get("assets") or {}
+        header = str(assets.get("header") or "")
+        url_format = str(assets.get("asset_url_format") or "")
+        if header and url_format:
+            header_image = CDN_BASE + url_format.replace("${FILENAME}", header)
+        else:
+            header_image = HEADER_IMAGE_URL.format(appid=appid)
+        basic = item.get("basic_info") or {}
+        release_ts = (item.get("release") or {}).get("steam_release_date")
+        release_date = ""
+        if isinstance(release_ts, (int, float)) and release_ts > 0:
+            release_date = datetime.fromtimestamp(release_ts, tz=timezone.utc).strftime("%Y-%m-%d")
+        return GameMeta(
+            appid=appid,
+            name=str(item.get("name") or ""),
+            header_image=header_image,
+            short_description=str(basic.get("short_description") or ""),
+            developers=", ".join(
+                str(row.get("name") or "") for row in (basic.get("developers") or []) if row
+            ),
+            publishers=", ".join(
+                str(row.get("name") or "") for row in (basic.get("publishers") or []) if row
+            ),
+            genres="",
+            release_date=release_date,
+            is_free=bool(item["is_free"]) if "is_free" in item else None,
+        )
+
+    async def _store_items_pass(
+        self, appids: Sequence[int], country_code: str, batch_size: int
+    ) -> dict[int, GameMeta]:
         metas: dict[int, GameMeta] = {}
-        for index in range(0, len(unique), batch_size):
-            chunk = unique[index : index + batch_size]
+        for index in range(0, len(appids), batch_size):
+            chunk = list(appids[index : index + batch_size])
+            payload = {
+                "ids": [{"appid": appid} for appid in chunk],
+                "context": {"language": self.lang, "country_code": country_code},
+                "data_request": {
+                    "include_basic_info": True,
+                    "include_assets": True,
+                    "include_release": True,
+                },
+            }
             try:
-                payload = await self._request(
-                    APP_DETAILS_URL,
-                    {"appids": ",".join(str(a) for a in chunk), "cc": self.cc, "l": self.lang},
-                )
+                data = await self._request(STORE_ITEMS_URL, {"input_json": json.dumps(payload)})
             except SteamError as exc:
                 logger.warning("metadata batch failed (%s apps): %s", len(chunk), exc)
                 continue
+            items = ((data or {}).get("response") or {}).get("store_items") or []
+            by_appid = {
+                int(item.get("appid") or 0): item for item in items if isinstance(item, dict)
+            }
             for appid in chunk:
-                meta = self._parse_meta(appid, (payload or {}).get(str(appid)))
+                meta = self._parse_store_item(appid, by_appid.get(appid))
                 if meta is not None:
                     metas[appid] = meta
-            if index + batch_size < len(unique):
+            if index + batch_size < len(appids):
                 await asyncio.sleep(random.uniform(1.0, 3.0))
         return metas
+
+    async def fetch_store_items(
+        self, appids: Sequence[int], batch_size: int = STORE_ITEM_BATCH
+    ) -> dict[int, GameMeta]:
+        """Fetch metadata for many games with few requests (no API key required).
+
+        ``appdetails`` rejects multiple appids unless ``filters=price_overview`` is
+        set, so bulk metadata uses ``IStoreBrowseService/GetItems`` instead; it
+        returns localized name, header image, short description, studios and
+        release timestamp.  Genres are only exposed by the single-app
+        ``appdetails`` call, so they stay untouched here.
+
+        Games missing from the shop in the configured country (region locks,
+        delisted titles) are retried once against the US catalogue, which keeps
+        cover art and descriptions even when the game cannot be bought locally.
+        """
+        unique = [int(a) for a in dict.fromkeys(appids) if int(a) > 0]
+        metas = await self._store_items_pass(unique, self.cc.upper(), batch_size)
+        country = self.cc.upper()
+        missing = [appid for appid in unique if appid not in metas]
+        if missing and country != "US":
+            await asyncio.sleep(random.uniform(1.0, 2.0))
+            metas.update(await self._store_items_pass(missing, "US", batch_size))
+        await self._fill_missing_descriptions(metas)
+        return metas
+
+    async def _fetch_basic_meta(self, appid: int) -> GameMeta | None:
+        """Single-app ``appdetails`` fallback for entries without a description."""
+        try:
+            payload = await self._request(
+                APP_DETAILS_URL,
+                {"appids": str(appid), "filters": "basic", "cc": self.cc, "l": self.lang},
+            )
+        except SteamError as exc:
+            logger.warning("metadata fallback failed for appid %s: %s", appid, exc)
+            return None
+        entry = payload.get(str(appid)) if isinstance(payload, dict) else None
+        return self._parse_meta(appid, entry)
+
+    async def _fill_missing_descriptions(self, metas: dict[int, GameMeta]) -> None:
+        """Backfill entries whose catalogue record has no short description.
+
+        Older or obscure titles often ship without ``basic_info.short_description``
+        in ``GetItems`` even though the store page (and ``appdetails``) has one.
+        """
+        pending = [appid for appid, meta in metas.items() if not meta.short_description]
+        for index, appid in enumerate(pending):
+            extra = await self._fetch_basic_meta(appid)
+            if extra is None:
+                continue
+            meta = metas[appid]
+            metas[appid] = replace(
+                meta,
+                name=meta.name or extra.name,
+                header_image=meta.header_image or extra.header_image,
+                short_description=extra.short_description or meta.short_description,
+                developers=meta.developers or extra.developers,
+                publishers=meta.publishers or extra.publishers,
+                genres=extra.genres or meta.genres,
+                release_date=meta.release_date or extra.release_date,
+                is_free=meta.is_free if meta.is_free is not None else extra.is_free,
+            )
+            if index + 1 < len(pending):
+                await asyncio.sleep(random.uniform(0.5, 1.0))
+
+    async def fetch_metas(self, appids: Sequence[int], batch_size: int = STORE_ITEM_BATCH) -> dict[int, GameMeta]:
+        """Bulk metadata, kept as a thin alias of :meth:`fetch_store_items`."""
+        return await self.fetch_store_items(appids, batch_size=batch_size)
 
     async def search(self, term: str, limit: int = 12) -> list[SearchItem]:
         term = (term or "").strip()

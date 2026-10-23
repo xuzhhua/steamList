@@ -8,10 +8,10 @@ from datetime import datetime, timedelta, timezone as dt_timezone
 from zoneinfo import ZoneInfo
 
 from apscheduler.schedulers.background import BackgroundScheduler
-from sqlalchemy import select
+from sqlalchemy import or_, select
 
 from ..db import Database
-from ..models import JobRun, WatchItem
+from ..models import Game, JobRun, WatchItem
 from ..timeutil import from_iso, to_iso, utcnow
 from . import pricing
 from .notifier import Notifier
@@ -185,11 +185,13 @@ class PollService:
             outcome = IngestResult(checked=0, changed=0, failed=[], events=[])
             if appids:
                 meta_due = self._meta_refresh_due(settings.get("meta_refresh_at"), now)
+                meta_appids = appids if meta_due else self._missing_meta_appids(session, appids)
                 client = self.client_factory(cc, lang)
-                prices, metas = asyncio.run(self._collect(client, appids, meta_due))
+                prices, metas = asyncio.run(self._collect(client, appids, meta_appids))
                 if metas:
                     for meta in metas.values():
                         pricing.ensure_game(session, meta, now=now)
+                if meta_due and metas:
                     update_settings(session, {"meta_refresh_at": to_iso(now)})
                 outcome = ingest_prices(session, prices, cc, now=now)  # type: ignore[arg-type]
             session.commit()
@@ -227,13 +229,37 @@ class PollService:
         finally:
             session.close()
 
-    async def _collect(self, client: SteamClient, appids: list[int], need_meta: bool):
+    async def _collect(
+        self, client: SteamClient, appids: list[int], meta_appids: list[int]
+    ):
         try:
             prices = await client.fetch_prices(appids)
-            metas = await client.fetch_metas(appids) if need_meta else {}
+            metas = await client.fetch_metas(meta_appids) if meta_appids else {}
             return prices, metas
         finally:
             await client.aclose()
+
+    def _missing_meta_appids(self, session, appids: list[int]) -> list[int]:
+        """Watched games whose name, cover or description is still empty."""
+        if not appids:
+            return []
+        rows = session.execute(
+            select(Game.appid).where(
+                Game.appid.in_(appids),
+                or_(
+                    Game.name == "",
+                    Game.header_image == "",
+                    Game.short_description == "",
+                ),
+            )
+        ).scalars()
+        missing = set(rows)
+        # Games that were never stored at all also need metadata.
+        known = set(
+            session.execute(select(Game.appid).where(Game.appid.in_(appids))).scalars()
+        )
+        missing.update(set(appids) - known)
+        return [appid for appid in appids if appid in missing]
 
     def _meta_refresh_due(self, last_iso: str | None, now: datetime) -> bool:
         if not last_iso:

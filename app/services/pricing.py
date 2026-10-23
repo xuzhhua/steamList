@@ -56,7 +56,8 @@ def ensure_game(session: Session, meta: GameMeta, now: datetime | None = None) -
         game.genres = meta.genres
     if meta.release_date:
         game.release_date = meta.release_date
-    game.is_free = meta.is_free
+    if meta.is_free is not None:
+        game.is_free = meta.is_free
     game.last_synced_at = now or utcnow()
     return game
 

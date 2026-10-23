@@ -1,0 +1,22 @@
+{
+  "response": {
+    "store_items": [
+      {
+        "appid": 999999,
+        "success": 1,
+        "visible": true,
+        "name": "Region Locked",
+        "basic_info": {
+          "short_description": "US only listing.",
+          "publishers": [{ "name": "Pub" }],
+          "developers": [{ "name": "Dev" }]
+        },
+        "assets": {
+          "asset_url_format": "steam/apps/999999/${FILENAME}?t=7",
+          "header": "c44857fe223dcf31ce603b756f8f01d89a4f0fce/header.jpg"
+        },
+        "release": { "steam_release_date": 1600000000 }
+      }
+    ]
+  }
+}
