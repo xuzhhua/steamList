@@ -28,6 +28,7 @@ logger = logging.getLogger("steamlist.steam")
 APP_DETAILS_URL = "https://store.steampowered.com/api/appdetails"
 STORE_SEARCH_URL = "https://store.steampowered.com/api/storesearch/"
 WISHLIST_URL = "https://api.steampowered.com/IWishlistService/GetWishlist/v1/"
+WISHLIST_COUNT_URL = "https://api.steampowered.com/IWishlistService/GetWishlistItemCount/v1/"
 PROFILE_XML_URL = "https://steamcommunity.com/profiles/{steamid}/?xml=1"
 VANITY_XML_URL = "https://steamcommunity.com/id/{vanity}/?xml=1"
 WISHLIST_DATA_URL = "https://store.steampowered.com/wishlist/profiles/{steamid}/wishlistdata/"
@@ -312,6 +313,23 @@ class SteamClient:
         response = payload.get("response") or {}
         return [int(item["appid"]) for item in (response.get("items") or []) if item.get("appid")]
 
+    async def fetch_wishlist_count(self, steamid: str) -> int:
+        """Number of items Steam reports for a wishlist (0 when hidden or empty).
+
+        ``GetWishlistItemCount`` is the only anonymous endpoint that still returns a
+        positive number for a public wishlist: the store ``wishlistdata`` endpoint
+        redirects every anonymous request to the store front page since ~2025.
+        """
+        steamid = (steamid or "").strip()
+        if not steamid.isdigit():
+            raise SteamError("SteamID must be a 17-digit numeric id")
+        payload = await self._request(WISHLIST_COUNT_URL, {"steamid": steamid})
+        response = payload.get("response") or {}
+        try:
+            return int(response.get("count") or 0)
+        except (TypeError, ValueError):
+            return 0
+
     def _login_cookie(self, steamid: str, access_token: str) -> str:
         return f"steamLoginSecure={steamid}||{access_token}"
 
@@ -323,15 +341,41 @@ class SteamClient:
     ) -> list[int]:
         """Read the owner's wishlist with a web session (works for private profiles).
 
-        The store page ``wishlistdata`` endpoint returns one JSON object per page
-        (``{"<appid>": {...}}``); it redirects to the login page when the session
-        cookie is missing or expired.
+        First tries the official ``GetWishlist`` API with the session cookie, then
+        falls back to the paginated store ``wishlistdata`` endpoint (one JSON object
+        per page, ``{"<appid>": {...}}``).
         """
         steamid = (steamid or "").strip()
         if not steamid.isdigit() or not access_token:
             raise SteamAuthError("读取私密心愿单需要已登录的 Steam 账号")
         cookie = self._login_cookie(steamid, access_token)
-        appids: list[int] = []
+
+        # 1) Official API with the session cookie.
+        await self._throttle()
+        try:
+            response = await self._client.get(
+                WISHLIST_URL,
+                params={"steamid": steamid},
+                headers={"Cookie": cookie},
+                follow_redirects=False,
+            )
+        except httpx.HTTPError as exc:
+            raise SteamError(f"读取私密心愿单失败：{exc}") from exc
+        if response.status_code in (401, 403) or 300 <= response.status_code < 400:
+            raise SteamAuthError("Steam 登录已失效，请在设置页重新扫码登录")
+        if response.status_code == 200:
+            try:
+                payload = response.json()
+            except ValueError:
+                payload = None
+            if isinstance(payload, dict):
+                items = (payload.get("response") or {}).get("items") or []
+                appids = [int(item["appid"]) for item in items if item.get("appid")]
+                if appids:
+                    return appids
+
+        # 2) Fallback: paginated store endpoint.
+        appids = []
         for page in range(max_pages):
             await self._throttle()
             url = WISHLIST_DATA_URL.format(steamid=steamid)
@@ -436,15 +480,14 @@ class SteamClient:
         }
 
     async def wishlist_visibility(self, steamid: str) -> str:
-        """Whether the store can show this wishlist: ``visible`` / ``hidden`` / ``unknown``."""
-        response = await self._get_text(
-            WISHLIST_DATA_URL.format(steamid=steamid),
-            params={"p": "0"},
-            follow_redirects=False,
-        )
-        if response.status_code == 200:
-            return "visible"
-        if 300 <= response.status_code < 400 or response.status_code in (401, 403):
-            return "hidden"
-        return "unknown"
+        """Whether anonymous requests can read this wishlist: ``visible`` / ``unknown``.
+
+        Steam does not expose a dedicated "wishlist is hidden" signal anymore: the
+        store ``wishlistdata`` endpoint redirects anonymous requests to the store
+        front page even for public wishlists, while ``GetWishlistItemCount`` returns
+        a positive count for public wishlists and an empty object for both empty and
+        hidden ones.  So we can only tell "definitely visible" from "unknown".
+        """
+        count = await self.fetch_wishlist_count(steamid)
+        return "visible" if count > 0 else "unknown"
 

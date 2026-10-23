@@ -329,11 +329,11 @@ def test_fetch_profile_private_profile_reports_privacy():
     assert profile["steamid"] == "76561197960287930"
 
 
-def test_wishlist_visibility_detects_redirect_and_public():
+def test_wishlist_visibility_uses_item_count():
     def handler(request: httpx.Request) -> httpx.Response:
         if "76561197960287930" in str(request.url):
-            return httpx.Response(302, headers={"location": "https://steamcommunity.com/login"})
-        return httpx.Response(200, json={"1": {"name": "ELDEN RING"}})
+            return httpx.Response(200, json={"response": {}})
+        return httpx.Response(200, json={"response": {"count": 12}})
 
     async def run():
         client = make_client(handler)
@@ -345,7 +345,22 @@ def test_wishlist_visibility_detects_redirect_and_public():
         finally:
             await client.aclose()
 
-    assert asyncio.run(run()) == ("hidden", "visible")
+    assert asyncio.run(run()) == ("unknown", "visible")
+
+
+def test_fetch_wishlist_count_parses_count():
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert "GetWishlistItemCount" in str(request.url)
+        return httpx.Response(200, json={"response": {"count": 285}})
+
+    async def run():
+        client = make_client(handler)
+        try:
+            return await client.fetch_wishlist_count("76561197969918174")
+        finally:
+            await client.aclose()
+
+    assert asyncio.run(run()) == 285
 
 
 def test_get_text_keeps_query_string_when_params_omitted():
@@ -374,11 +389,34 @@ def test_get_text_keeps_query_string_when_params_omitted():
 STEAMID = "76561197960287930"
 
 
-def test_fetch_wishlist_private_sends_cookie_and_pages():
+def test_fetch_wishlist_private_uses_api_with_cookie():
     seen: list[httpx.Request] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
         seen.append(request)
+        return httpx.Response(200, json={"response": {"items": [{"appid": 10}, {"appid": 20}]}})
+
+    async def run():
+        client = make_client(handler)
+        try:
+            return await client.fetch_wishlist_private(STEAMID, "token-1")
+        finally:
+            await client.aclose()
+
+    appids = asyncio.run(run())
+    assert appids == [10, 20]
+    assert "GetWishlist" in str(seen[0].url)
+    assert seen[0].url.params["steamid"] == STEAMID
+    assert seen[0].headers["cookie"] == "steamLoginSecure=" + STEAMID + "||token-1"
+
+
+def test_fetch_wishlist_private_falls_back_to_pages():
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        if "wishlistdata" not in str(request.url):
+            return httpx.Response(200, json={"response": {}})
         page = request.url.params.get("p")
         if page == "0":
             data = {str(1000 + i): {"name": f"game {i}"} for i in range(100)}
@@ -397,8 +435,8 @@ def test_fetch_wishlist_private_sends_cookie_and_pages():
     assert len(appids) == 101
     assert appids[0] == 1000
     assert appids[-1] == 2000
-    assert [r.url.params.get("p") for r in seen] == ["0", "1"]
-    assert seen[0].headers["cookie"] == "steamLoginSecure=" + STEAMID + "||token-1"
+    pages = [r.url.params.get("p") for r in seen if "wishlistdata" in str(r.url)]
+    assert pages == ["0", "1"]
 
 
 def test_fetch_wishlist_private_redirect_means_relogin():

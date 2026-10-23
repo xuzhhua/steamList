@@ -168,6 +168,7 @@ def test_import_explains_private_profile(api, fake):
     assert body["errors"]
     assert "隐私" in body["errors"][0]
     assert "公开" in body["errors"][0]
+    assert "游戏详情" in body["errors"][0]
 
 
 def test_import_explains_empty_public_wishlist(api, fake):
@@ -175,7 +176,19 @@ def test_import_explains_empty_public_wishlist(api, fake):
     fake.visibility = "visible"
     body = api.post("/api/watchlist/import", json={"steamid": STEAMID}).json()
     assert body["errors"]
-    assert "没有游戏" in body["errors"][0]
+    assert "没有返回条目" in body["errors"][0]
+
+
+def test_import_explains_unknown_visibility_with_selfcheck_link(api, fake):
+    fake.wishlist = []
+    fake.visibility = "unknown"
+    body = api.post("/api/watchlist/import", json={"steamid": STEAMID}).json()
+    assert body["errors"]
+    error = body["errors"][0]
+    assert f"https://store.steampowered.com/wishlist/profiles/{STEAMID}/" in error
+    assert "扫码登录" in error
+    assert "无痕" in error
+    assert "游戏详情" in error
 
 
 def test_import_unknown_profile(api, fake):

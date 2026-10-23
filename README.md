@@ -95,9 +95,9 @@ pnpm dev
 
 ## 扫码登录 Steam（导入私密心愿单）
 
-Steam 的公开心愿单接口只返回公开数据。若只想读取**自己的私密心愿单**（资料 / 心愿单设为仅好友可见或私密），可在「设置 → Steam 账号」点击「扫码登录」，用 Steam 手机 App 扫码并确认。
+Steam 的公开心愿单接口只返回公开数据。若只想读取**自己的私密心愿单**（「游戏详情」设为仅好友可见或私密），可在「设置 → Steam 账号」点击「扫码登录」，用 Steam 手机 App 扫码并确认。
 
-- 流程：`IAuthenticationService/BeginAuthSessionViaQR` 生成二维码 → App 确认 → 轮询 `PollAuthSessionStatus` 拿到 refresh token → 导入时用 `GenerateAccessTokenForApp` 换短期 access token，以 `steamLoginSecure` Cookie 读取 `wishlist/profiles/<steamid>/wishlistdata`。
+- 流程：`IAuthenticationService/BeginAuthSessionViaQR` 生成二维码 → App 确认 → 轮询 `PollAuthSessionStatus` 拿到 refresh token → 导入时用 `GenerateAccessTokenForApp` 换短期 access token，以 `steamLoginSecure` Cookie 调用官方 `IWishlistService/GetWishlist`（为空时回退到分页 `wishlistdata`）。
 - 存储：refresh token 仅保存在本机 SQLite 的 `app_settings` 表（随 `./data` 卷持久化），不会发送给任何第三方；access token 只缓存在进程内存。
 - 断开：设置页「断开」会在服务端调用 `RevokeToken` 吊销并清除本地令牌；删除 `./data` 也会一并清除。
 - 限制：只能导入**已登录账号本人**的私密心愿单（接口按登录态返回）；若填入其他账号，仍走公开接口并给出提示。登录会话在 300 秒内有效，过期后重新生成二维码即可。
@@ -175,12 +175,17 @@ deploy.ps1           远程部署脚本
 
 **容器内访问 Steam 失败？** 检查 `STEAMLIST_PROXY_URL` 是否配置为 `host.docker.internal` 形式，并确认宿主机代理允许局域网/容器访问。
 
-**导入心愿单提示「心愿单不可见」？** 两种情况：
+**导入心愿单提示「心愿单不可见」或「没有返回条目」？**
 
-1. **自己的私密心愿单**：到「设置 → Steam 账号」扫码登录（Steam 手机 App 确认）后重新导入，即可读取仅好友可见 / 私密的心愿单；
-2. **别人的公开心愿单**：对方需要打开 Steam → 个人资料 → 编辑个人资料 → 隐私设置，把「我的个人资料」设为「公开」（若列表里有「心愿单」选项也设为「公开」）。
+Steam 的愿望单可见性跟随隐私设置里的「游戏详情」项（Public / Friends Only / Private），**没有单独的心愿单开关**：只把「我的个人资料」设为公开并不够。「游戏详情」为「仅好友」或「私密」时，匿名接口拿不到心愿单条目。
 
-输入支持三种形式：17 位 SteamID64、`steamcommunity.com/profiles/...` 或 `steamcommunity.com/id/...` 链接、以及自定义链接名（如 `gaben`）。若提示「资料已公开但心愿单里没有游戏」，说明心愿单确实为空；若提示「当前已登录账号与要导入的账号不一致」，请先在设置页断开并改用目标账号扫码登录。
+1. **先自查**：用浏览器无痕窗口打开 `https://store.steampowered.com/wishlist/profiles/<你的 17 位 SteamID64>/`。能看到游戏 → 心愿单已公开；看不到 → 到 Steam → 个人资料 → 编辑个人资料 → 隐私设置，把「游戏详情」设为「公开」（想保持私密也可以）。
+2. **想读私密心愿单（自己的）**：到「设置 → Steam 账号」扫码登录（Steam 手机 App 确认）后重新导入，登录态可绕过上述限制。
+3. **别人的心愿单**：对方必须把「游戏详情」设为公开，否则无解。
+
+输入支持三种形式：17 位 SteamID64、`steamcommunity.com/profiles/...` 或 `steamcommunity.com/id/...` 链接、以及自定义链接名（如 `gaben`）。注意显示名（persona）不是自定义链接名。错误信息会区分：找不到资料、资料隐私受限、心愿单确实为空、Steam 报告有条目但未返回（接口临时异常）、以及「当前已登录账号与要导入的账号不一致」。
+
+> 旧版本（≤ 0.1.0）用商店页 `wishlistdata` 端点判断可见性，该端点已对匿名请求一律 302，会把「接口返回空」误报成「心愿单不可见」；当前版本改为按 `GetWishlistItemCount` 条目数判断并给出可操作原因。
 
 **运行 `.\deploy.ps1` 报「未对文件进行数字签名 / 无法加载文件」？** 这是 PowerShell 执行策略拦截了未签名脚本。改用 `.\deploy.cmd -RemoteUser ...`，或显式执行 `powershell -NoProfile -ExecutionPolicy Bypass -File .\deploy.ps1 ...`；也可 `Unblock-File .\deploy.ps1` 后重试（仅解除文件锁定，对 AllSigned 策略无效）。
 

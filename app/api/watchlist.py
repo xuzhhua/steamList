@@ -170,7 +170,7 @@ def import_steam_wishlist(
 
     errors: list[str] = []
     if not appids:
-        errors.append(_empty_wishlist_reason(resolved_steamid, profile, visibility))
+        errors.append(_empty_wishlist_reason(resolved_steamid, profile, visibility, used_private))
         if refresh_token and not used_private and login_steamid and resolved_steamid != login_steamid:
             errors.append(
                 f"当前已登录 Steam 账号「{login_name or login_steamid}」，"
@@ -195,20 +195,41 @@ def _empty_wishlist_reason(
     steamid: str,
     profile: dict[str, str] | None,
     visibility: str,
+    used_private: bool = False,
 ) -> str:
-    """Explain why GetWishlist returned nothing, with an actionable next step."""
+    """Explain why the wishlist import returned nothing, with an actionable next step."""
     if not profile:
         return f"找不到 SteamID {steamid} 对应的个人资料，请检查 ID 或链接是否正确"
     persona = profile.get("persona") or steamid
     privacy = profile.get("privacy") or ""
-    if visibility == "hidden" or privacy != "public":
-        reason = f"当前资料隐私：{privacy}" if privacy else "隐私设置限制了公开访问"
+    wishlist_link = f"https://store.steampowered.com/wishlist/profiles/{steamid}/"
+    login_hint = (
+        "也可以在「设置 → Steam 账号」扫码登录后重新导入：登录状态下可以读取私密心愿单。"
+    )
+    if used_private:
         return (
-            f"「{persona}」的 Steam 心愿单不可见（{reason}）。"
-            "请打开 Steam → 个人资料 → 编辑个人资料 → 隐私设置，"
-            "把「我的个人资料」设为「公开」（如有「心愿单」选项也设为公开），保存后重试导入。"
+            f"已登录的 Steam 账号「{persona}」心愿单里没有游戏。"
+            "请先在 Steam 客户端或商店页把想跟踪的游戏加入心愿单，保存后重试导入。"
         )
-    return f"「{persona}」的个人资料已公开，但心愿单里没有游戏（或心愿单被隐藏），请先在 Steam 添加游戏到心愿单"
+    if privacy and privacy != "public":
+        return (
+            f"「{persona}」的 Steam 心愿单不可见（个人资料隐私：{privacy}）。"
+            "请打开 Steam → 个人资料 → 编辑个人资料 → 隐私设置，把「我的个人资料」和"
+            "「游戏详情」都设为「公开」（Steam 的心愿单可见性跟随「游戏详情」，没有单独的心愿单开关），"
+            f"保存后重试。{login_hint}"
+        )
+    if visibility == "visible":
+        return (
+            f"Steam 报告「{persona}」的心愿单里有游戏，但没有返回条目（Steam 接口可能临时异常）。"
+            f"请稍后重试；{login_hint}"
+        )
+    return (
+        f"Steam 没有返回「{persona}」的心愿单条目。可能原因：① 心愿单为空；"
+        "② 隐私设置里的「游戏详情」仍是「仅好友」或「私密」（心愿单跟随该开关，没有单独开关）。"
+        f"请用浏览器无痕窗口打开 {wishlist_link} 自查：能看到游戏说明心愿单已公开，稍后重试即可；"
+        "看不到游戏则请在 Steam 隐私设置里把「游戏详情」设为「公开」。"
+        f"{login_hint}"
+    )
 
 
 def client_factory(app, cc: str, lang: str) -> SteamClient:  # pragma: no cover - typing helper
